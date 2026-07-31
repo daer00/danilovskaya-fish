@@ -1,0 +1,11 @@
+{
+  "name": "danilovskaya-fish-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "npm run dev -w @fish/admin",
+    "build": "npm run build -w @fish/admin",
+    "lint": "npm run lint -w @fish/admin"
+  }
+}
