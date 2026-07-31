@@ -38,5 +38,6 @@ class OrderItem(Base, TimestampMixin):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    actual_weight_kg: Mapped[Decimal | None] = mapped_column(Numeric(8, 3))
 
     order: Mapped[Order] = relationship(back_populates="items")

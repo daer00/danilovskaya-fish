@@ -63,6 +63,19 @@ export async function apiSend<T>(method: string, path: string, body?: unknown): 
   )
 }
 
+export async function apiUpload(path: string, file: File): Promise<{ url: string }> {
+  const t = getToken()
+  const fd = new FormData()
+  fd.append('file', file)
+  return handle<{ url: string }>(
+    await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: t ? { Authorization: `Bearer ${t}` } : {},
+      body: fd,
+    }),
+  )
+}
+
 export async function login(email: string, password: string): Promise<void> {
   const data = await handle<{ access_token: string }>(
     await fetch(`${BASE}/admin/auth/login`, {

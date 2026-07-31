@@ -79,6 +79,9 @@ async def start(message: Message, state: FSMContext) -> None:
         await message.answer(texts.get("start_back", имя=client["full_name"], **ph), reply_markup=kb.main_kb())
     else:
         await message.answer(texts.get("start_first", **ph), reply_markup=kb.main_kb())
+    open_kb = kb.open_catalog_kb()
+    if open_kb:
+        await message.answer("Собрать заказ можно в каталоге:", reply_markup=open_kb.as_markup())
 
 
 @router.message(Command("info"))
@@ -92,8 +95,62 @@ async def help_cmd(message: Message) -> None:
     await message.answer(texts.get("help"), reply_markup=kb.main_kb())
 
 
+async def start_checkout_from_items(
+    *,
+    chat_id: int,
+    state: FSMContext,
+    items: list,
+    answer,
+) -> None:
+    """Общий старт оформления из мини-аппа (sendData или API/outbox)."""
+    await state.clear()
+    if not items:
+        await answer(texts.get("cart_empty"), reply_markup=kb.main_kb())
+        return
+    cart = [
+        {
+            "product_id": int(i["product_id"]),
+            "name": str(i["name"]),
+            "price": str(i["price"]),
+            "quantity": str(i["quantity"]),
+        }
+        for i in items
+    ]
+    await state.update_data(cart=cart)
+    состав, сумма = _cart_sum(cart)
+    await answer(texts.get("cart_view", состав=состав, сумма=сумма), reply_markup=kb.main_kb())
+    await state.set_state(OrderFSM.name)
+    await answer(texts.get("ask_name"), reply_markup=kb.remove_kb())
+
+
+@router.message(F.web_app_data)
+async def cart_from_webapp(message: Message, state: FSMContext) -> None:
+    """Корзина из мини-приложения через sendData (только keyboard web_app)."""
+    import json
+
+    try:
+        raw = json.loads(message.web_app_data.data)
+        items = raw.get("items") or []
+    except (TypeError, ValueError, AttributeError):
+        await message.answer(texts.get("error_generic"), reply_markup=kb.main_kb())
+        return
+    await start_checkout_from_items(chat_id=message.chat.id, state=state, items=items, answer=message.answer)
+
+
 @router.message(F.text == "Каталог")
 async def catalog(message: Message, state: FSMContext) -> None:
+    """Если WEBAPP_URL задан, каталог — только мини-апп; иначе текстовый список."""
+    from bots.core.config import settings as bot_settings
+
+    open_kb = kb.open_catalog_kb()
+    if open_kb:
+        await message.answer(
+            "Каталог открывается в мини-приложении — нажмите кнопку ниже "
+            "(или «Каталог» на клавиатуре с иконкой приложения).",
+            reply_markup=open_kb.as_markup(),
+        )
+        return
+
     batch = await backend.active_batch()
     ph = await _batch_ph()
     if not batch or not batch.get("is_open"):

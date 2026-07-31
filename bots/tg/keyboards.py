@@ -1,17 +1,33 @@
 from __future__ import annotations
 
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from bots.core.config import settings
 
 
 def main_kb() -> ReplyKeyboardMarkup:
+    catalog: KeyboardButton
+    if settings.webapp_url:
+        catalog = KeyboardButton(text="Каталог", web_app=WebAppInfo(url=settings.webapp_url))
+    else:
+        catalog = KeyboardButton(text="Каталог")
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Каталог"), KeyboardButton(text="Мои заказы")],
+            [catalog, KeyboardButton(text="Мои заказы")],
             [KeyboardButton(text="Условия")],
         ],
         resize_keyboard=True,
     )
+
+
+def open_catalog_kb() -> InlineKeyboardBuilder | None:
+    """Отдельная кнопка открытия мини-аппа (надёжнее на Desktop)."""
+    if not settings.webapp_url:
+        return None
+    b = InlineKeyboardBuilder()
+    b.button(text="🛒 Открыть каталог", web_app=WebAppInfo(url=settings.webapp_url))
+    return b
 
 
 def qty_kb(halves: bool) -> InlineKeyboardBuilder:

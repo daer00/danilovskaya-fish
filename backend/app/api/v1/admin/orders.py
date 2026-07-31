@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +16,7 @@ from app.core.database import get_session
 from app.enums import STATUS_LABELS, OrderStatus
 from app.models.client import Client
 from app.models.order import Order, OrderItem
-from app.services.orders import compose_items, fmt_money, load_order, notify_order_status
+from app.services.orders import compose_items, load_order, notify_order_status
 
 router = APIRouter()
 
@@ -27,6 +27,17 @@ ALLOWED = {
     OrderStatus.COMPLETED: set(),
     OrderStatus.CANCELLED: set(),
 }
+
+
+class OrderItemOut(BaseModel):
+    id: int
+    product_name: str
+    quantity: Decimal
+    unit_price: Decimal
+    line_total: Decimal
+    actual_weight_kg: Decimal | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class OrderOut(BaseModel):
@@ -41,6 +52,7 @@ class OrderOut(BaseModel):
     total: Decimal
     cancel_reason: str | None
     состав: str
+    items: list[OrderItemOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +60,17 @@ class OrderOut(BaseModel):
 class StatusIn(BaseModel):
     status: OrderStatus
     cancel_reason: str | None = None
+
+
+class ItemPatch(BaseModel):
+    id: int
+    actual_weight_kg: Decimal | None = None
+    unit_price: Decimal | None = None
+    line_total: Decimal | None = None
+
+
+class ItemsIn(BaseModel):
+    items: list[ItemPatch] = Field(min_length=1)
 
 
 class SummaryLine(BaseModel):
@@ -69,6 +92,7 @@ def _out(o: Order) -> OrderOut:
         total=o.total,
         cancel_reason=o.cancel_reason,
         состав=compose_items(o.items),
+        items=[OrderItemOut.model_validate(i) for i in o.items],
     )
 
 
@@ -82,6 +106,39 @@ async def list_orders(
     if batch_id:
         q = q.where(Order.batch_id == batch_id)
     return [_out(o) for o in await session.scalars(q)]
+
+
+@router.patch("/{order_id}/items", response_model=OrderOut)
+async def update_items(
+    order_id: int,
+    payload: ItemsIn,
+    _: CurrentAdmin,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> OrderOut:
+    """Вес перед выдачей + цена/сумма позиции → пересчёт итога заказа."""
+    order = await load_order(session, order_id)
+    if not order:
+        raise HTTPException(404, "not_found")
+    if order.status == OrderStatus.CANCELLED:
+        raise HTTPException(400, "cancelled")
+    by_id = {i.id: i for i in order.items}
+    for patch in payload.items:
+        item = by_id.get(patch.id)
+        if not item:
+            raise HTTPException(400, f"item {patch.id}")
+        if patch.actual_weight_kg is not None:
+            item.actual_weight_kg = patch.actual_weight_kg
+        if patch.unit_price is not None:
+            item.unit_price = patch.unit_price
+        if patch.line_total is not None:
+            item.line_total = patch.line_total
+        elif patch.unit_price is not None:
+            item.line_total = (item.unit_price * item.quantity).quantize(Decimal("0.01"))
+    order.total = sum((i.line_total for i in order.items), Decimal("0")).quantize(Decimal("0.01"))
+    await session.commit()
+    order = await load_order(session, order_id)
+    assert order
+    return _out(order)
 
 
 @router.patch("/{order_id}/status", response_model=OrderOut)
@@ -120,6 +177,4 @@ async def purchase_summary(
         .group_by(OrderItem.product_name)
         .order_by(OrderItem.product_name)
     )
-    return [
-        SummaryLine(product_name=n, quantity=q, total=t) for n, q, t in rows.all()
-    ]
+    return [SummaryLine(product_name=n, quantity=q, total=t) for n, q, t in rows.all()]

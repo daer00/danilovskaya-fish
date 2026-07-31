@@ -32,24 +32,26 @@ export function Summary() {
           </option>
         ))}
       </select>
-      <table>
-        <thead>
-          <tr>
-            <th>Товар</th>
-            <th>Кол-во</th>
-            <th>Сумма</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l) => (
-            <tr key={l.product_name}>
-              <td>{l.product_name}</td>
-              <td>{l.quantity}</td>
-              <td>{l.total} ₽</td>
+      <div className="table-wrap">
+        <table className="table--compact">
+          <thead>
+            <tr>
+              <th>Товар</th>
+              <th>Кол-во</th>
+              <th>Сумма</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.product_name}>
+                <td>{l.product_name}</td>
+                <td>{l.quantity}</td>
+                <td>{l.total} ₽</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

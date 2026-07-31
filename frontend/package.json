@@ -5,7 +5,10 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "npm run dev -w @fish/admin",
-    "build": "npm run build -w @fish/admin",
+    "dev:miniapp": "npm run dev -w @fish/miniapp",
+    "build": "npm run build -w @fish/admin && npm run build -w @fish/miniapp",
+    "build:admin": "npm run build -w @fish/admin",
+    "build:miniapp": "npm run build -w @fish/miniapp",
     "lint": "npm run lint -w @fish/admin"
   }
 }

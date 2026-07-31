@@ -20,6 +20,7 @@ build/
 .env.*
 !.env.example
 !infra/.env.example
+!infra/.env.server.example
 *.pem
 *.key
 
@@ -33,6 +34,15 @@ build/
 /data/
 /tmp/
 scratchpad/
+backend/webroot/
+infra/webroot/*
+!infra/webroot/.gitkeep
+infra/webroot-admin/*
+!infra/webroot-admin/.gitkeep
+infra/media/*
+!infra/media/.gitkeep
+backend/media/*
+!backend/media/.gitkeep
 
 # Alembic local
 backend/alembic/versions/*.pyc

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     jwt_access_ttl_minutes: int = 60
     jwt_refresh_ttl_days: int = 14
 
+    bot_api_token: str | None = None  # shared secret bot ↔ backend (outbox)
     tg_bot_token: str | None = None
     admin_notify_chat_id: str | None = None  # Telegram chat id для админ-уведомлений
 

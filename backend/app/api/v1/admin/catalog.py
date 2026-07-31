@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.admin.deps import CurrentAdmin
+from app.core.config import settings
 from app.core.database import get_session
 from app.models.product import Product
 
 router = APIRouter()
+
+_ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 class ProductIn(BaseModel):
@@ -36,6 +41,18 @@ class ProductOut(ProductIn):
 @router.get("", response_model=list[ProductOut])
 async def list_products(_: CurrentAdmin, session: Annotated[AsyncSession, Depends(get_session)]) -> list[Product]:
     return list(await session.scalars(select(Product).order_by(Product.sort_order, Product.id)))
+
+
+@router.post("/upload")
+async def upload_photo(_: CurrentAdmin, file: UploadFile = File(...)) -> dict[str, str]:
+    ext = Path(file.filename or "photo.jpg").suffix.lower() or ".jpg"
+    if ext not in _ALLOWED:
+        raise HTTPException(400, "Допустимы jpg, png, webp, gif")
+    name = f"{uuid.uuid4().hex}{ext}"
+    dest = Path(settings.media_root) / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(await file.read())
+    return {"url": f"/media/{name}"}
 
 
 @router.post("", response_model=ProductOut)

@@ -35,10 +35,13 @@ services:
       dockerfile: Dockerfile
     env_file: .env.server
     environment:
+      WEBROOT: /app/webroot
       WEBROOT_ADMIN: /app/webroot-admin
+      MEDIA_ROOT: /app/media
     ports:
-      - "8090:8000"
+      - "127.0.0.1:8090:8000"
     volumes:
+      - ./webroot:/app/webroot:ro
       - ./webroot-admin:/app/webroot-admin:ro
       - ./media:/app/media
     depends_on:
@@ -61,7 +64,9 @@ services:
       TG_BOT_TOKEN: ${TG_BOT_TOKEN}
       TG_PROXY: ${TG_PROXY:-}
       BACKEND_URL: http://backend:8000/api/v1
+      BOT_API_TOKEN: ${BOT_API_TOKEN}
       REDIS_URL: redis://redis:6379/1
+      WEBAPP_URL: ${WEBAPP_URL:-}
     depends_on:
       backend:
         condition: service_started

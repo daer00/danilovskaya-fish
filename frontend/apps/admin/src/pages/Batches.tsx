@@ -57,34 +57,36 @@ export function Batches() {
           Создать (откроет приём)
         </button>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Название</th>
-            <th>Дедлайн</th>
-            <th>Выдача</th>
-            <th>Открыта</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((b) => (
-            <tr key={b.id}>
-              <td>{b.id}</td>
-              <td>{b.title}</td>
-              <td>{b.deadline}</td>
-              <td>{b.pickup_date}</td>
-              <td>{b.is_open ? 'да' : 'нет'}</td>
-              <td>
-                <button type="button" onClick={() => toggle(b)}>
-                  {b.is_open ? 'Закрыть' : 'Открыть'}
-                </button>
-              </td>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Название</th>
+              <th>Дедлайн</th>
+              <th>Выдача</th>
+              <th>Открыта</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((b) => (
+              <tr key={b.id}>
+                <td>{b.id}</td>
+                <td>{b.title}</td>
+                <td>{b.deadline}</td>
+                <td>{b.pickup_date}</td>
+                <td>{b.is_open ? 'да' : 'нет'}</td>
+                <td>
+                  <button type="button" onClick={() => toggle(b)}>
+                    {b.is_open ? 'Закрыть' : 'Открыть'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

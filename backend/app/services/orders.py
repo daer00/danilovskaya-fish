@@ -30,7 +30,14 @@ def fmt_qty(v: Decimal | float) -> str:
 
 
 def compose_items(items: list[OrderItem]) -> str:
-    return "\n".join(f"• {i.product_name} — {fmt_qty(i.quantity)} × {fmt_money(i.unit_price)} ₽" for i in items)
+    lines = []
+    for i in items:
+        w = f", вес {fmt_qty(i.actual_weight_kg)} кг" if i.actual_weight_kg is not None else ""
+        lines.append(
+            f"• {i.product_name} — {fmt_qty(i.quantity)} × {fmt_money(i.unit_price)} ₽"
+            f"{w} = {fmt_money(i.line_total)} ₽"
+        )
+    return "\n".join(lines)
 
 
 async def get_msg(session: AsyncSession, code: str) -> str:
