@@ -11,6 +11,7 @@ gh repo create danilovskaya-fish --private --source=. --remote=origin --push
 
 Дальше на сервере: `git clone` этого репозитория (см. ниже).
 
+## Что арендовать
 
 1. **Beget VPS** с Docker (не обычный «виртуальный хостинг»). Бюджет ориентир ~1500 ₽/мес.
 2. Домен → A-запись на IP VPS.
