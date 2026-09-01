@@ -60,13 +60,10 @@ services:
       context: ..
       dockerfile: bots/Dockerfile
     profiles: ["bots"]
+    env_file: .env.server
     environment:
-      TG_BOT_TOKEN: ${TG_BOT_TOKEN}
-      TG_PROXY: ${TG_PROXY:-}
       BACKEND_URL: http://backend:8000/api/v1
-      BOT_API_TOKEN: ${BOT_API_TOKEN}
       REDIS_URL: redis://redis:6379/1
-      WEBAPP_URL: ${WEBAPP_URL:-}
     depends_on:
       backend:
         condition: service_started

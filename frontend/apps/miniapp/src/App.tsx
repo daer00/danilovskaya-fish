@@ -21,6 +21,17 @@ function fmtQty(q: number) {
   return String(q).replace('.', ',')
 }
 
+function cartPayload(cart: CartItem[]) {
+  return {
+    items: cart.map((i) => ({
+      product_id: i.product.id,
+      name: i.product.name,
+      price: i.product.price,
+      quantity: String(i.quantity),
+    })),
+  }
+}
+
 export function App() {
   const [batch, setBatch] = useState<Batch>(null)
   const [products, setProducts] = useState<Product[]>([])
@@ -29,6 +40,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
+  const inTelegram = Boolean(tg()?.initData || tg()?.initDataUnsafe?.user)
 
   const total = useMemo(
     () => cart.reduce((s, i) => s + Number(i.product.price) * i.quantity, 0),
@@ -50,12 +62,15 @@ export function App() {
   useEffect(() => {
     const w = tg()
     if (!w?.MainButton) return
+    // MainButton только при реальной Telegram-сессии (есть initData/user)
     const onClick = () => {
       if (step === 'catalog' && cart.length) setStep('cart')
       else if (step === 'cart' && cart.length) void sendToBot()
     }
     w.MainButton.onClick(onClick)
-    if (step === 'catalog' && cart.length) {
+    if (!inTelegram) {
+      w.MainButton.hide()
+    } else if (step === 'catalog' && cart.length) {
       w.MainButton.setText(`Корзина · ${fmtMoney(total)}`)
       w.MainButton.show()
       w.MainButton.enable()
@@ -67,7 +82,7 @@ export function App() {
       w.MainButton.hide()
     }
     return () => w.MainButton.offClick(onClick)
-  }, [step, cart, total, busy])
+  }, [step, cart, total, busy, inTelegram])
 
   function add(p: Product, qty: number) {
     setCart((c) => {
@@ -88,34 +103,34 @@ export function App() {
     setBusy(true)
     setError(null)
     const w = tg()
-    const initData = w?.initData
-    if (!initData) {
-      setError('Откройте каталог из Telegram-бота')
+    const initData = w?.initData?.trim() || ''
+    const payload = cartPayload(cart)
+
+    try {
+      if (initData) {
+        const r = await fetch(`${API}/webapp/cart`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ init_data: initData, ...payload }),
+        })
+        if (!r.ok) {
+          const detail = await r.text().catch(() => '')
+          throw new Error(`${r.status} ${detail}`.slice(0, 180))
+        }
+        w?.HapticFeedback?.notificationOccurred?.('success')
+        w?.close?.()
+        return
+      }
+
+      // Fallback: кнопка WebApp на reply-клавиатуре (sendData)
+      if (typeof w?.sendData === 'function') {
+        w.sendData(JSON.stringify(payload))
+        return
+      }
+
+      setError('Откройте каталог кнопкой «Каталог» в боте (не через браузер).')
       sending.current = false
       setBusy(false)
-      return
-    }
-    const payload = {
-      init_data: initData,
-      items: cart.map((i) => ({
-        product_id: i.product.id,
-        name: i.product.name,
-        price: i.product.price,
-        quantity: String(i.quantity),
-      })),
-    }
-    try {
-      const r = await fetch(`${API}/webapp/cart`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (!r.ok) {
-        const detail = await r.text().catch(() => '')
-        throw new Error(`${r.status} ${detail}`.slice(0, 180))
-      }
-      w?.HapticFeedback?.notificationOccurred?.('success')
-      w?.close?.()
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''
       setError(
@@ -145,6 +160,9 @@ export function App() {
         </button>
         <h1>Корзина</h1>
         <p className="muted">Дальше оформление продолжится в чате с ботом</p>
+        {!inTelegram && (
+          <p className="err">Откройте каталог кнопкой «Каталог» в Telegram-боте</p>
+        )}
         {!cart.length && <p>Пусто</p>}
         <ul className="list">
           {cart.map((i) => (
@@ -163,7 +181,7 @@ export function App() {
         </ul>
         <p className="total">Итого: {fmtMoney(total)}</p>
         {error && <p className="err">{error}</p>}
-        {!!cart.length && (
+        {!!cart.length && (!inTelegram || !tg()?.MainButton) && (
           <button type="button" className="btn primary" disabled={busy} onClick={() => void sendToBot()}>
             {busy ? 'Отправляем…' : 'Оформить в боте'}
           </button>
