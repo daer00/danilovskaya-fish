@@ -104,6 +104,12 @@ export function Dashboard() {
     await load()
   }
 
+  async function removeBatch(b: Batch) {
+    if (!confirm(`Удалить партию «${b.title}» вместе с заказами?`)) return
+    await apiSend('DELETE', `/admin/batches/${b.id}`)
+    await load()
+  }
+
   const [body, ref] = useMemo(() => {
     const parts = verse.split('\n')
     const last = parts[parts.length - 1] ?? ''
@@ -144,6 +150,9 @@ export function Dashboard() {
                 </Link>
                 <button type="button" className="btn--ghost" onClick={() => void toggleOpen(open)}>
                   Закрыть приём
+                </button>
+                <button type="button" className="btn--ghost" onClick={() => void removeBatch(open)}>
+                  Удалить
                 </button>
               </div>
             </>
@@ -256,6 +265,9 @@ export function Dashboard() {
                     Открыть
                   </button>
                 )}
+                <button type="button" className="week-list__btn" onClick={() => void removeBatch(b)}>
+                  Удалить
+                </button>
               </div>
             </div>
           ))}

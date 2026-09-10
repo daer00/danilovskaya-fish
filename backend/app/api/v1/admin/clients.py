@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -441,3 +441,20 @@ async def update_client(
         or 0
     )
     return _out(row, orders, int(count or 0), unread)
+
+
+@router.delete("/{client_id}")
+async def delete_client(
+    client_id: int, _: CurrentAdmin, session: Annotated[AsyncSession, Depends(get_session)]
+) -> dict[str, str]:
+    row = await session.get(Client, client_id)
+    if not row:
+        raise HTTPException(404, "not_found")
+    orders = list(await session.scalars(select(Order).where(Order.client_id == client_id)))
+    for o in orders:
+        await session.delete(o)
+    await session.execute(delete(ClientMessage).where(ClientMessage.client_id == client_id))
+    await session.execute(delete(OutboundMessage).where(OutboundMessage.client_id == client_id))
+    await session.delete(row)
+    await session.commit()
+    return {"status": "ok"}

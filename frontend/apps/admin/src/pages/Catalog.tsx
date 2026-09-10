@@ -299,7 +299,9 @@ export function Catalog() {
       </div>
 
       <div className="simple-list">
-        {rows.map((p) => {
+        {rows
+          .filter((p) => p.is_active)
+          .map((p) => {
           const unit = p.unit === 'kg' ? 'kg' : 'pcs'
           const ul = unitLabel(unit)
           const buy = p.purchase_price != null ? Number(p.purchase_price) : null
@@ -317,16 +319,30 @@ export function Catalog() {
                     {buy != null ? ` · закупка ${buy} ₽/${ul}` : ''}
                     {buy != null ? ` · маржа ≈ ${round2(sale - buy)} ₽` : ''}
                     {unit === 'pcs' && p.weight_kg != null ? ` · ~${p.weight_kg} кг` : ''}
-                    {!p.is_active ? ' · скрыт' : ''}
                   </span>
                 </div>
               </div>
-              <button type="button" className="btn--ghost" onClick={() => edit(p)}>
-                Изменить
-              </button>
+              <div className="actions" style={{ flexShrink: 0 }}>
+                <button type="button" className="btn--ghost" onClick={() => edit(p)}>
+                  Изменить
+                </button>
+                <button
+                  type="button"
+                  className="btn--ghost"
+                  onClick={() => {
+                    if (!confirm(`Удалить товар «${p.name}»?`)) return
+                    void apiSend('DELETE', `/admin/catalog/${p.id}`)
+                      .then(load)
+                      .catch((e) => setErr(e instanceof Error ? e.message : 'Не удалось удалить'))
+                  }}
+                >
+                  Удалить
+                </button>
+              </div>
             </div>
           )
         })}
+        {!rows.some((p) => p.is_active) && <p className="empty">Товаров пока нет</p>}
       </div>
     </div>
   )

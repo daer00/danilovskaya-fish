@@ -158,6 +158,10 @@ export function Clients() {
 
   useEffect(() => {
     load().catch(console.error)
+    const t = window.setInterval(() => {
+      void apiGet<Client[]>('/admin/clients').then(setRows).catch(() => undefined)
+    }, 15000)
+    return () => window.clearInterval(t)
   }, [])
 
   const dupGroups = useMemo(() => findDupGroups(rows), [rows])
@@ -276,6 +280,13 @@ export function Clients() {
           </>
         }
       />
+
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'minmax(8rem, 14rem)' }}>
+        <div className="kpi">
+          <b>{rows.length}</b>
+          <span>Клиентов в базе</span>
+        </div>
+      </div>
 
       {loadErr && <p className="form-error">{loadErr}</p>}
 
@@ -469,6 +480,22 @@ export function Clients() {
                     <button type="button" className="btn--ghost msg-link" onClick={() => setChatId(c.id)}>
                       Сообщения
                       {c.unread_count > 0 ? <em className="unread-badge">{c.unread_count}</em> : null}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn--ghost"
+                      onClick={() => {
+                        if (!confirm(`Удалить клиента «${nameOf(c.full_name)}» и его заказы?`)) return
+                        void apiSend('DELETE', `/admin/clients/${c.id}`)
+                          .then(() => {
+                            setOpenId(null)
+                            setSelected((s) => s.filter((id) => id !== c.id))
+                            return load()
+                          })
+                          .catch((e) => setErr(e instanceof Error ? e.message : 'Не удалось удалить'))
+                      }}
+                    >
+                      Удалить
                     </button>
                   </div>
                   {orderFor === c.id && (

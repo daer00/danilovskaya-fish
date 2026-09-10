@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.admin.deps import CurrentAdmin
 from app.core.config import settings
 from app.core.database import get_session
+from app.models.batch_product import BatchProduct
 from app.models.product import Product
 
 router = APIRouter()
@@ -117,5 +118,7 @@ async def delete_product(
     if not row:
         raise HTTPException(404, "not_found")
     row.is_active = False
+    for bp in await session.scalars(select(BatchProduct).where(BatchProduct.product_id == product_id)):
+        bp.enabled = False
     await session.commit()
     return {"status": "ok"}

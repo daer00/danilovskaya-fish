@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,7 @@ from app.core.database import get_session
 from app.enums import STATUS_LABELS, OrderStatus
 from app.models.batch import Batch
 from app.models.batch_product import BatchProduct
+from app.models.expense import Expense
 from app.models.order import Order
 from app.models.product import Product
 from app.services.finance import batch_expenses, batch_purchase_cost, batch_revenue
@@ -76,6 +77,23 @@ async def update_batch(
     await session.commit()
     await session.refresh(row)
     return row
+
+
+@router.delete("/{batch_id}")
+async def delete_batch(
+    batch_id: int, _: CurrentAdmin, session: Annotated[AsyncSession, Depends(get_session)]
+) -> dict[str, str]:
+    row = await session.get(Batch, batch_id)
+    if not row:
+        raise HTTPException(404, "not_found")
+    orders = list(await session.scalars(select(Order).where(Order.batch_id == batch_id)))
+    for o in orders:
+        await session.delete(o)
+    await session.execute(delete(BatchProduct).where(BatchProduct.batch_id == batch_id))
+    await session.execute(delete(Expense).where(Expense.batch_id == batch_id))
+    await session.delete(row)
+    await session.commit()
+    return {"status": "ok"}
 
 
 class BatchProductLine(BaseModel):

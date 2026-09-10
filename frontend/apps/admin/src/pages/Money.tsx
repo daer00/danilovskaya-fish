@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { apiGet, apiSend } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { fmtRub } from '../lib/money'
@@ -12,15 +12,24 @@ type Cash = {
   amount: number
   category: string
 }
-type Overview = { received: number; spent: number; month: string }
+type Overview = { received: number; spent: number; revenue: number; month: string }
 
-const empty = {
-  entry_date: '',
+function todayISO() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function monthKey(iso = todayISO()) {
+  return iso.slice(0, 7)
+}
+
+const empty = () => ({
+  entry_date: todayISO(),
   title: '',
   amount: '',
   category: 'прочее',
   entry_type: 'expense' as 'income' | 'expense',
-}
+})
 
 export function Money() {
   const [rows, setRows] = useState<Cash[]>([])
@@ -38,11 +47,26 @@ export function Money() {
     load().catch(console.error)
   }, [])
 
+  const month = overview?.month || monthKey()
+  const totals = useMemo(() => {
+    let income = 0
+    let expense = 0
+    for (const r of rows) {
+      if (!String(r.entry_date).startsWith(month)) continue
+      const n = Number(r.amount) || 0
+      if (r.entry_type === 'income') income += n
+      else expense += n
+    }
+    // заказы месяца тоже в «Получения»
+    const orders = Number(overview?.revenue ?? 0)
+    return { income: income + orders, expense }
+  }, [rows, month, overview?.revenue])
+
   async function save() {
     const amount = toNum(form.amount)
     if (!form.title.trim() || !amount || !form.entry_date) return
     await apiSend('POST', '/admin/cash', { ...form, amount })
-    setForm(empty)
+    setForm(empty())
     await load()
   }
 
@@ -56,15 +80,15 @@ export function Money() {
 
   return (
     <div className="page">
-      <PageHeader title="Деньги" description="Получения и траты за месяц. Заказы считаются автоматически." />
+      <PageHeader title="Деньги" description="Получения и траты за месяц. Заказы считаются в получениях." />
 
       <div className="kpi-grid kpi-grid--2">
-        <div className="kpi">
-          <b>{fmtRub(Number(overview?.received ?? 0))}</b>
+        <div className={`kpi kpi--pos${form.entry_type === 'income' ? ' kpi--focus' : ''}`}>
+          <b className="pos">{fmtRub(totals.income)}</b>
           <span>Получения</span>
         </div>
-        <div className="kpi">
-          <b>{fmtRub(Number(overview?.spent ?? 0))}</b>
+        <div className={`kpi kpi--neg${form.entry_type === 'expense' ? ' kpi--focus' : ''}`}>
+          <b className="neg">{fmtRub(totals.expense)}</b>
           <span>Траты</span>
         </div>
       </div>

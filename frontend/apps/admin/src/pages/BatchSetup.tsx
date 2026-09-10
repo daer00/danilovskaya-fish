@@ -160,9 +160,25 @@ export function BatchSetup() {
             : 'Состав партии'
         }
         actions={
-          <Link to="/" className="btn--ghost">
-            ← Главная
-          </Link>
+          <>
+            <Link to="/" className="btn--ghost">
+              ← Главная
+            </Link>
+            {batch && (
+              <button
+                type="button"
+                className="btn--ghost"
+                onClick={() => {
+                  if (!confirm(`Удалить партию «${batch.title}» вместе с заказами?`)) return
+                  void apiSend('DELETE', `/admin/batches/${batch.id}`)
+                    .then(() => nav('/'))
+                    .catch((e) => setErr(e instanceof Error ? e.message : 'Не удалось удалить'))
+                }}
+              >
+                Удалить партию
+              </button>
+            )}
+          </>
         }
       />
 
