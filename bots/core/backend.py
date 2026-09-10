@@ -61,5 +61,13 @@ class Backend:
         r = await self._c.post(f"/outbox/{msg_id}/sent")
         r.raise_for_status()
 
+    async def inbound_message(self, telegram_id: str, text: str, username: str | None = None) -> dict:
+        r = await self._c.post(
+            "/chat/inbound",
+            json={"telegram_id": telegram_id, "text": text, "username": username},
+        )
+        r.raise_for_status()
+        return r.json()
+
 
 backend = Backend()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, String
+from sqlalchemy import BigInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -15,4 +15,6 @@ class Client(Base, TimestampMixin):
     telegram_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(32))
-    username: Mapped[str | None] = mapped_column(String(64))
+    username: Mapped[str | None] = mapped_column(String(255))
+    notes: Mapped[str | None] = mapped_column(Text)
+    linked_telegrams: Mapped[str | None] = mapped_column(Text)

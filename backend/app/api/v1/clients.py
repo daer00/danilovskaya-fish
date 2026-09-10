@@ -36,13 +36,14 @@ class ClientOut(BaseModel):
 @router.post("/upsert", response_model=ClientOut)
 async def upsert(payload: ClientUpsert, session: Annotated[AsyncSession, Depends(get_session)]) -> ClientOut:
     from app.models.order import Order
+    from app.services.clients import find_by_telegram, merge_nicks
 
-    c = await session.scalar(select(Client).where(Client.telegram_id == payload.telegram_id))
+    c = await find_by_telegram(session, payload.telegram_id)
     if c is None:
         c = Client(telegram_id=payload.telegram_id)
         session.add(c)
     if payload.username is not None:
-        c.username = payload.username
+        c.username = merge_nicks(c.username, payload.username)
     if payload.full_name is not None:
         c.full_name = payload.full_name
     if payload.phone is not None:

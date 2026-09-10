@@ -1,13 +1,15 @@
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth'
 import { AdminLayout } from './layout/AdminLayout'
-import { Batches } from './pages/Batches'
+import { BatchSetup } from './pages/BatchSetup'
 import { BotTexts } from './pages/BotTexts'
 import { Catalog } from './pages/Catalog'
+import { Clients } from './pages/Clients'
 import { Dashboard } from './pages/Dashboard'
 import { Login } from './pages/Login'
+import { Messages } from './pages/Messages'
+import { Money } from './pages/Money'
 import { Orders } from './pages/Orders'
-import { Summary } from './pages/Summary'
 
 function Protected() {
   const { user, loading } = useAuth()
@@ -23,11 +25,17 @@ export function App() {
       <Route element={<Protected />}>
         <Route element={<AdminLayout />}>
           <Route index element={<Dashboard />} />
-          <Route path="batches" element={<Batches />} />
-          <Route path="catalog" element={<Catalog />} />
           <Route path="orders" element={<Orders />} />
-          <Route path="summary" element={<Summary />} />
+          <Route path="clients" element={<Clients />} />
+          <Route path="messages" element={<Messages />} />
+          <Route path="catalog" element={<Catalog />} />
+          <Route path="money" element={<Money />} />
           <Route path="bot-texts" element={<BotTexts />} />
+          <Route path="batches" element={<Navigate to="/" replace />} />
+          <Route path="batches/:id" element={<BatchSetup />} />
+          <Route path="expenses" element={<Navigate to="/money" replace />} />
+          <Route path="summary" element={<Navigate to="/" replace />} />
+          <Route path="finance" element={<Navigate to="/money" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Route>

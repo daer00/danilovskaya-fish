@@ -13,10 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_session
-from app.enums import STATUS_LABELS, OrderStatus
+from app.enums import PICKUP_LABELS, STATUS_LABELS, OrderStatus, PickupSlot
 from app.models.client import Client
 from app.models.order import Order, OrderItem
 from app.models.product import Product
+from app.models.batch_product import BatchProduct
 from app.services.orders import (
     active_batch,
     batch_placeholders,
@@ -41,6 +42,7 @@ class OrderCreate(BaseModel):
     full_name: str = Field(min_length=2)
     phone: str
     comment: str | None = None
+    pickup_slot: PickupSlot
     items: list[CartItemIn] = Field(min_length=1)
 
 
@@ -63,6 +65,8 @@ class OrderOut(BaseModel):
     full_name: str
     phone: str
     comment: str | None
+    pickup_slot: str | None = None
+    pickup_label: str | None = None
     total: Decimal
     cancel_reason: str | None
     items: list[OrderItemOut]
@@ -83,6 +87,8 @@ def _out(o: Order) -> OrderOut:
         full_name=o.full_name,
         phone=o.phone,
         comment=o.comment,
+        pickup_slot=o.pickup_slot,
+        pickup_label=PICKUP_LABELS.get(o.pickup_slot or "", None),
         total=o.total,
         cancel_reason=o.cancel_reason,
         items=items,
@@ -98,13 +104,47 @@ def _validate_qty(product: Product, qty: Decimal) -> Decimal:
         raise HTTPException(400, "Неверное количество") from e
     if q <= 0:
         raise HTTPException(400, "Количество должно быть больше 0")
-    if product.allow_halves:
+    allow_half = product.unit == "kg" or product.allow_halves
+    if allow_half:
         if (q * 2) != (q * 2).to_integral_value():
             raise HTTPException(400, "half_step")
     else:
         if q != q.to_integral_value():
             raise HTTPException(400, "whole_only")
     return q
+
+
+async def build_order_items(
+    session: AsyncSession, rows: list[CartItemIn], batch_id: int
+) -> tuple[list[OrderItem], Decimal]:
+    items: list[OrderItem] = []
+    total = Decimal("0")
+    for row in rows:
+        product = await session.get(Product, row.product_id)
+        if not product or not product.is_active:
+            raise HTTPException(400, "product_gone")
+        bp = await session.scalar(
+            select(BatchProduct).where(
+                BatchProduct.batch_id == batch_id,
+                BatchProduct.product_id == product.id,
+                BatchProduct.enabled.is_(True),
+            )
+        )
+        if not bp:
+            raise HTTPException(400, f"Товар «{product.name}» не в этой партии")
+        qty = _validate_qty(product, row.quantity)
+        line = (bp.sale_price * qty).quantize(Decimal("0.01"))
+        total += line
+        items.append(
+            OrderItem(
+                product_id=product.id,
+                product_name=product.name,
+                unit_price=bp.sale_price,
+                quantity=qty,
+                line_total=line,
+            )
+        )
+    return items, total
 
 
 @router.post("", response_model=OrderOut)
@@ -117,43 +157,55 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
     if now > dl:
         raise HTTPException(400, "deadline_passed")
 
-    client = await session.scalar(select(Client).where(Client.telegram_id == payload.telegram_id))
+    from app.services.clients import find_by_telegram
+
+    client = await find_by_telegram(session, payload.telegram_id)
     if not client:
         raise HTTPException(404, "client_not_found")
 
-    items: list[OrderItem] = []
-    total = Decimal("0")
-    for row in payload.items:
-        product = await session.get(Product, row.product_id)
-        if not product or not product.is_active:
-            raise HTTPException(400, "product_gone")
-        qty = _validate_qty(product, row.quantity)
-        line = (product.price * qty).quantize(Decimal("0.01"))
-        total += line
-        items.append(
-            OrderItem(
-                product_id=product.id,
-                product_name=product.name,
-                unit_price=product.price,
-                quantity=qty,
-                line_total=line,
-            )
+    items, total = await build_order_items(session, payload.items, batch.id)
+
+    processing = await session.scalar(
+        select(Order)
+        .where(
+            Order.client_id == client.id,
+            Order.batch_id == batch.id,
+            Order.status == OrderStatus.PROCESSING,
         )
+        .options(selectinload(Order.items))
+        .order_by(Order.id.desc())
+        .limit(1)
+    )
 
     client.full_name = payload.full_name
     client.phone = payload.phone
-    order = Order(
-        number=await next_order_number(session, batch.id),
-        batch_id=batch.id,
-        client_id=client.id,
-        status=OrderStatus.NEW,
-        full_name=payload.full_name,
-        phone=payload.phone,
-        comment=payload.comment,
-        total=total,
-        items=items,
-    )
-    session.add(order)
+
+    if processing:
+        for old in list(processing.items):
+            await session.delete(old)
+        await session.flush()
+        processing.items = items
+        processing.total = total
+        processing.full_name = payload.full_name
+        processing.phone = payload.phone
+        processing.comment = payload.comment
+        processing.pickup_slot = payload.pickup_slot
+        processing.status = OrderStatus.NEW
+        order = processing
+    else:
+        order = Order(
+            number=await next_order_number(session, batch.id),
+            batch_id=batch.id,
+            client_id=client.id,
+            status=OrderStatus.NEW,
+            full_name=payload.full_name,
+            phone=payload.phone,
+            comment=payload.comment,
+            pickup_slot=payload.pickup_slot,
+            total=total,
+            items=items,
+        )
+        session.add(order)
     await session.flush()
 
     ph = {
@@ -163,6 +215,7 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
         "состав": compose_items(items),
         "сумма": fmt_money(total),
         "комментарий": order.comment or "—",
+        "собрание": PICKUP_LABELS.get(order.pickup_slot or "", "—"),
         **batch_placeholders(batch),
     }
     await notify_admins(session, render(await get_msg(session, "admin_new_order"), **ph))
@@ -174,7 +227,9 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
 
 @router.get("/by-telegram/{telegram_id}", response_model=list[OrderOut])
 async def list_by_tg(telegram_id: str, session: Annotated[AsyncSession, Depends(get_session)]) -> list[OrderOut]:
-    client = await session.scalar(select(Client).where(Client.telegram_id == telegram_id))
+    from app.services.clients import find_by_telegram
+
+    client = await find_by_telegram(session, telegram_id)
     if not client:
         return []
     batch = await active_batch(session)
@@ -191,11 +246,14 @@ async def cancel_by_client(
     telegram_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> OrderOut:
+    from app.services.clients import parse_links
+
     order = await session.scalar(select(Order).where(Order.id == order_id).options(selectinload(Order.items)))
     if not order:
         raise HTTPException(404, "not_found")
     client = await session.get(Client, order.client_id)
-    if not client or client.telegram_id != telegram_id:
+    allowed = {client.telegram_id, *parse_links(client.linked_telegrams)} if client else set()
+    if not client or telegram_id not in allowed:
         raise HTTPException(403, "forbidden")
 
     from app.models.batch import Batch
@@ -206,7 +264,7 @@ async def cancel_by_client(
     dl = batch.deadline if batch.deadline.tzinfo else batch.deadline.replace(tzinfo=UTC)
     if now > dl:
         raise HTTPException(400, "deadline_passed")
-    if order.status != OrderStatus.NEW:
+    if order.status not in (OrderStatus.NEW, OrderStatus.PROCESSING):
         raise HTTPException(400, "already_confirmed")
 
     order.status = OrderStatus.CANCELLED

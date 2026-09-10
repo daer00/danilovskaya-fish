@@ -8,5 +8,6 @@ class OrderFSM(StatesGroup):
     qty_custom = State()
     name = State()
     phone = State()
+    pickup = State()
     comment = State()
     confirm = State()

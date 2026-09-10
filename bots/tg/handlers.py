@@ -6,7 +6,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -294,8 +294,8 @@ async def got_contact(message: Message, state: FSMContext) -> None:
         await message.answer(texts.get("phone_bad"), reply_markup=kb.phone_kb())
         return
     await state.update_data(phone=phone)
-    await state.set_state(OrderFSM.comment)
-    await message.answer(texts.get("ask_comment"), reply_markup=kb.skip_kb().as_markup())
+    await state.set_state(OrderFSM.pickup)
+    await message.answer(texts.get("ask_pickup"), reply_markup=kb.pickup_kb().as_markup())
 
 
 @router.message(OrderFSM.phone)
@@ -305,8 +305,23 @@ async def got_phone_text(message: Message, state: FSMContext) -> None:
         await message.answer(texts.get("phone_bad"), reply_markup=kb.phone_kb())
         return
     await state.update_data(phone=phone)
+    await state.set_state(OrderFSM.pickup)
+    await message.answer(texts.get("ask_pickup"), reply_markup=kb.pickup_kb().as_markup())
+
+
+PICKUP_RU = {"first": "1-е собрание", "second": "2-е собрание"}
+
+
+@router.callback_query(OrderFSM.pickup, F.data.startswith("pickup:"))
+async def got_pickup(cq: CallbackQuery, state: FSMContext) -> None:
+    slot = (cq.data or "").split(":", 1)[-1]
+    if slot not in ("first", "second"):
+        await cq.answer()
+        return
+    await state.update_data(pickup_slot=slot)
     await state.set_state(OrderFSM.comment)
-    await message.answer(texts.get("ask_comment"), reply_markup=kb.skip_kb().as_markup())
+    await cq.message.answer(texts.get("ask_comment"), reply_markup=kb.skip_kb().as_markup())
+    await cq.answer()
 
 
 async def _show_confirm(message: Message, state: FSMContext) -> None:
@@ -315,7 +330,14 @@ async def _show_confirm(message: Message, state: FSMContext) -> None:
     ph = await _batch_ph()
     await state.set_state(OrderFSM.confirm)
     await message.answer(
-        texts.get("confirm", состав=состав, сумма=сумма, имя=data["full_name"], **ph),
+        texts.get(
+            "confirm",
+            состав=состав,
+            сумма=сумма,
+            имя=data["full_name"],
+            собрание=PICKUP_RU.get(data.get("pickup_slot") or "", "—"),
+            **ph,
+        ),
         reply_markup=kb.confirm_kb().as_markup(),
     )
 
@@ -348,6 +370,7 @@ async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
         "full_name": data["full_name"],
         "phone": data["phone"],
         "comment": data.get("comment"),
+        "pickup_slot": data.get("pickup_slot") or "first",
         "items": [{"product_id": i["product_id"], "quantity": i["quantity"]} for i in data.get("cart") or []],
     }
     try:
@@ -363,6 +386,7 @@ async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
         await cq.answer()
         return
     ph = await _batch_ph()
+    slot_label = order.get("pickup_label") or PICKUP_RU.get(data.get("pickup_slot") or "", "—")
     await state.clear()
     await cq.message.answer(
         texts.get(
@@ -370,6 +394,7 @@ async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
             номер=str(order["number"]),
             состав=order["состав"],
             сумма=order["сумма"],
+            собрание=slot_label,
             **ph,
         ),
         reply_markup=kb.main_kb(),
@@ -393,7 +418,7 @@ async def my_orders(message: Message) -> None:
             статус=o["status_label"],
             **ph,
         )
-        markup = kb.order_kb(o["id"], o["number"]).as_markup() if o["status"] == "new" else None
+        markup = kb.order_kb(o["id"], o["number"]).as_markup() if o["status"] in ("new", "processing") else None
         await message.answer(text, reply_markup=markup)
 
 
@@ -436,6 +461,20 @@ async def cancel_yes(cq: CallbackQuery) -> None:
     await cq.answer()
 
 
-@router.message()
+@router.message(StateFilter(None), F.text)
 async def fallback(message: Message) -> None:
-    await message.answer(texts.get("unknown"), reply_markup=kb.main_kb())
+    text = (message.text or "").strip()
+    if not text or not message.from_user:
+        return
+    try:
+        await backend.inbound_message(
+            str(message.from_user.id),
+            text,
+            username=message.from_user.username,
+        )
+        await message.answer(
+            "Сообщение передано. Мы ответим вам здесь, в этом чате.",
+            reply_markup=kb.main_kb(),
+        )
+    except Exception:
+        await message.answer(texts.get("unknown"), reply_markup=kb.main_kb())

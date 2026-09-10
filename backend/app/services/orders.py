@@ -123,3 +123,22 @@ async def notify_order_status(session: AsyncSession, order: Order, client: Clien
         code = "order_cancelled_reason" if order.cancel_reason else "order_cancelled"
         text = render(await get_msg(session, code), **ph)
         await enqueue(session, channel_user_id=client.telegram_id, text=text, client_id=client.id, order_id=order.id)
+
+
+async def notify_order_ready(session: AsyncSession, order: Order, client: Client) -> None:
+    """Всегда отправить шаблон «заказ готов» (даже если статус уже ready/completed)."""
+    if client.telegram_id.startswith("manual-"):
+        return
+    ph = {
+        "имя": order.full_name,
+        "номер": str(order.number),
+        "состав": compose_items(order.items),
+        "сумма": fmt_money(order.total),
+        "причина": "",
+        "статус": STATUS_LABELS.get(order.status, order.status),
+    }
+    batch = await session.get(Batch, order.batch_id)
+    if batch:
+        ph.update(batch_placeholders(batch))
+    text = render(await get_msg(session, "order_ready"), **ph)
+    await enqueue(session, channel_user_id=client.telegram_id, text=text, client_id=client.id, order_id=order.id)

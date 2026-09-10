@@ -13,6 +13,7 @@ from app.core.security import hash_password
 from app.enums import AdminRole
 from app.models.admin_user import AdminUser
 from app.models.batch import Batch
+from app.models.batch_product import BatchProduct
 from app.models.messaging import BotMessage
 from app.models.product import Product
 
@@ -54,12 +55,15 @@ MESSAGES: list[tuple[str, str, str]] = [
     ("phone_bad", "Телефон неверен",
      "Что-то не так с номером. Напишите в формате +7 900 000 00 00 или нажмите кнопку ниже."),
     ("ask_comment", "Комментарий", "Хотите что-то добавить? Напишите — или пропустите этот шаг."),
+    ("ask_pickup", "Собрание",
+     "Когда заберёте заказ?\n\nВыдача в холле после служения — выберите первое или второе собрание."),
     ("confirm", "Итоговый экран",
      "Проверьте заказ:\n\n{состав}\n\nИтого: {сумма} ₽\nИмя: {имя}\n"
-     "Забрать: {дата_выдачи}, в холле\n\nВсё верно?"),
+     "Забрать: {дата_выдачи}, {собрание}\n\nВсё верно?"),
     ("order_created", "Заказ создан",
-     "Заказ №{номер} принят.\n\n{состав}\nИтого: {сумма} ₽\n\n"
-     "Ждём вас {дата_выдачи} в холле, после первого или после второго служения. Оплата при получении."),
+     "Заказ №{номер} принят.\n\n{состав}\nИтого: {сумма} ₽\n"
+     "Выдача: {дата_выдачи}, {собрание}\n\n"
+     "Ждём вас в холле. Оплата при получении."),
     ("orders_list", "Мои заказы",
      "Ваш заказ на {дата_выдачи}:\n\n№{номер} — {состав}\nИтого: {сумма} ₽\nСтатус: {статус}"),
     ("orders_empty", "Заказов нет", "Заказов пока нет. Каталог открыт до {дедлайн}."),
@@ -85,7 +89,8 @@ MESSAGES: list[tuple[str, str, str]] = [
     ("order_cancelled", "Отмена без причины",
      "{имя}, заказ №{номер} отменён. Если это ошибка — напишите @beer_baron1 или @anarii_ii."),
     ("admin_new_order", "Админ: новый заказ",
-     "Новый заказ №{номер}\n\n{имя}, {телефон}\n{состав}\nСумма: {сумма} ₽\nКомментарий: {комментарий}"),
+     "Новый заказ №{номер}\n\n{имя}, {телефон}\n{состав}\nСумма: {сумма} ₽\n"
+     "Собрание: {собрание}\nКомментарий: {комментарий}"),
     ("admin_client_cancel", "Админ: клиент отменил",
      "Отмена: заказ №{номер}, {имя}\nБыл на {сумма} ₽"),
     ("admin_deadline_2h", "Админ: −2ч",
@@ -98,14 +103,16 @@ MESSAGES: list[tuple[str, str, str]] = [
     ("product_gone", "Товар убрали",
      "Эту позицию только что убрали из каталога. Посмотрите, что есть сейчас."),
     ("unknown", "Непонятная команда", "Не понял. Нажмите кнопку ниже или наберите /start."),
+    ("dashboard_verse", "Стих на главной админки",
+     "Всё могу в укрепляющем меня Иисусе Христе.\n— Филиппийцам 4:13"),
 ]
 
 PRODUCTS = [
-    ("Форель свежая ~2,5 кг", Decimal("5190"), "Свежая форель. Режем на стейки при вас.", True),
-    ("Форель замороженная ~2,5 кг", Decimal("4490"), "Замороженная форель.", True),
-    ("Сёмга свежая ~2,8 кг", Decimal("10290"), "Свежая сёмга. Режем на стейки при вас.", True),
-    ("Дорадо ~0,4 кг", Decimal("890"), "Целая дорадо.", False),
-    ("Сибас ~0,4 кг", Decimal("890"), "Целый сибас.", False),
+    ("Форель свежая ~2,5 кг", Decimal("5190"), Decimal("2.5"), Decimal("1800"), "Свежая форель. Режем на стейки при вас.", True),
+    ("Форель замороженная ~2,5 кг", Decimal("4490"), Decimal("2.5"), Decimal("1500"), "Замороженная форель.", True),
+    ("Сёмга свежая ~2,8 кг", Decimal("10290"), Decimal("2.8"), Decimal("3200"), "Свежая сёмга. Режем на стейки при вас.", True),
+    ("Дорадо ~0,4 кг", Decimal("890"), Decimal("0.4"), Decimal("650"), "Целая дорадо.", False),
+    ("Сибас ~0,4 кг", Decimal("890"), Decimal("0.4"), Decimal("650"), "Целый сибас.", False),
 ]
 
 
@@ -123,8 +130,18 @@ async def run() -> None:
             )
 
         if not await s.scalar(select(Product.id).limit(1)):
-            for i, (name, price, desc, halves) in enumerate(PRODUCTS):
-                s.add(Product(name=name, price=price, description=desc, allow_halves=halves, sort_order=i))
+            for i, (name, price, weight, purchase, desc, halves) in enumerate(PRODUCTS):
+                s.add(
+                    Product(
+                        name=name,
+                        price=price,
+                        weight_kg=weight,
+                        purchase_price_per_kg=purchase,
+                        description=desc,
+                        allow_halves=halves,
+                        sort_order=i,
+                    )
+                )
 
         if not await s.scalar(select(Batch.id).limit(1)):
             now = datetime.now(UTC)
@@ -138,10 +155,32 @@ async def run() -> None:
                 )
             )
 
-        existing = {m.code for m in await s.scalars(select(BotMessage))}
+        await s.flush()
+        batch = await s.scalar(select(Batch).where(Batch.is_open.is_(True)).limit(1))
+        if batch and not await s.scalar(select(BatchProduct.id).where(BatchProduct.batch_id == batch.id).limit(1)):
+            for p in await s.scalars(select(Product).where(Product.is_active.is_(True))):
+                purchase = (
+                    (p.weight_kg * p.purchase_price_per_kg).quantize(Decimal("0.01"))
+                    if p.weight_kg and p.purchase_price_per_kg
+                    else (p.price * Decimal("0.6")).quantize(Decimal("0.01"))
+                )
+                s.add(
+                    BatchProduct(
+                        batch_id=batch.id,
+                        product_id=p.id,
+                        enabled=True,
+                        sale_price=p.price,
+                        purchase_price=purchase,
+                    )
+                )
+
+        existing = {m.code: m for m in await s.scalars(select(BotMessage))}
         for code, trigger, text in MESSAGES:
             if code not in existing:
                 s.add(BotMessage(code=code, trigger=trigger, text=text))
+            elif code in ("ask_pickup", "confirm", "order_created", "admin_new_order"):
+                existing[code].text = text
+                existing[code].trigger = trigger
 
         await s.commit()
         print("seed ok: admin@fish.local / admin123")

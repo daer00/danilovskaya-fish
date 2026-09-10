@@ -22,6 +22,7 @@ class Order(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(32), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)
+    pickup_slot: Mapped[str | None] = mapped_column(String(16))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     cancel_reason: Mapped[str | None] = mapped_column(Text)
 

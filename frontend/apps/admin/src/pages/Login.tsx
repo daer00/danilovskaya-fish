@@ -30,7 +30,8 @@ export function Login() {
     <div className="login">
       <form className="login__card" onSubmit={submit}>
         <div className="login__brand">
-          Даниловская рыба · админка
+          Даниловская рыба
+          <span>Вход в админку</span>
         </div>
         <label className="field">
           <span className="field__label">Почта</span>

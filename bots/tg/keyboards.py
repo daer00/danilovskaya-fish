@@ -74,6 +74,14 @@ def skip_kb() -> InlineKeyboardBuilder:
     return b
 
 
+def pickup_kb() -> InlineKeyboardBuilder:
+    b = InlineKeyboardBuilder()
+    b.button(text="1-е собрание", callback_data="pickup:first")
+    b.button(text="2-е собрание", callback_data="pickup:second")
+    b.adjust(1)
+    return b
+
+
 def confirm_kb() -> InlineKeyboardBuilder:
     b = InlineKeyboardBuilder()
     b.button(text="Подтвердить", callback_data="order:confirm")
