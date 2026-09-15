@@ -24,7 +24,7 @@ from app.models.messaging import OutboundMessage
 from app.models.order import Order
 from app.models.batch import Batch
 from sqlalchemy.orm import selectinload
-from app.api.v1.orders import CartItemIn, _out, build_order_items
+from app.api.v1.orders import CartItemIn as OrderLineIn, _out, build_order_items
 from app.services.orders import active_batch, next_order_number
 
 router = APIRouter()
@@ -34,7 +34,7 @@ _CART_COOLDOWN_SEC = 15
 _MAX_ITEMS = 30
 
 
-class CartItemIn(BaseModel):
+class WebappCartItemIn(BaseModel):
     product_id: int
     name: str = Field(max_length=200)
     price: str = Field(max_length=32)
@@ -43,7 +43,7 @@ class CartItemIn(BaseModel):
 
 class CheckoutIn(BaseModel):
     init_data: str = Field(min_length=1)
-    items: list[CartItemIn] = Field(min_length=1, max_length=_MAX_ITEMS)
+    items: list[WebappCartItemIn] = Field(min_length=1, max_length=_MAX_ITEMS)
 
 
 class InitIn(BaseModel):
@@ -167,7 +167,7 @@ async def submit_cart(
         raise HTTPException(400, "deadline_passed")
 
     client = await _upsert_client(session, user)
-    rows = [CartItemIn(product_id=i.product_id, quantity=Decimal(i.quantity)) for i in body.items]
+    rows = [OrderLineIn(product_id=i.product_id, quantity=Decimal(i.quantity)) for i in body.items]
     items, total = await build_order_items(session, rows, batch.id)
 
     for old in await session.scalars(
