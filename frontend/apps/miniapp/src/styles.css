@@ -1,25 +1,27 @@
-:root {
+:root,
+[data-theme="light"] {
   color-scheme: light;
-  --bg: var(--tg-theme-bg-color, #f4f0e8);
-  --surface: var(--tg-theme-secondary-bg-color, #fffdf9);
-  --text: var(--tg-theme-text-color, #1a2e35);
-  --hint: var(--tg-theme-hint-color, #5f7178);
-  --sea: var(--tg-theme-button-color, #1f5f73);
+  /* Свои цвета — TG-переменные часто дают белый текст на белой карточке */
+  --bg: #f4f0e8;
+  --surface: #fffdf9;
+  --text: #1a2e35;
+  --hint: #5f7178;
+  --sea: #1f5f73;
   --sea-dark: #164a5a;
-  --sea-soft: color-mix(in srgb, var(--sea) 14%, var(--surface));
-  --foam: color-mix(in srgb, var(--sea) 10%, var(--surface));
+  --sea-soft: #e4eef1;
+  --foam: #eef4f6;
   --add: #2a7a5f;
   --add-bg: #e8f4ee;
   --remove: #a8483a;
   --remove-bg: #faece9;
-  --btn-text: var(--tg-theme-button-text-color, #fff);
+  --btn-text: #fff;
   --border: rgba(26, 46, 53, 0.08);
   --border-strong: rgba(31, 95, 115, 0.18);
   --shadow: 0 10px 28px rgba(26, 46, 53, 0.08);
-  --nav-bg: color-mix(in srgb, var(--surface) 92%, transparent);
+  --nav-bg: rgba(255, 253, 249, 0.94);
   --hero-glow: rgba(31, 95, 115, 0.14);
   --hero-top: #e8f0ec;
-  --pill-bg: var(--surface);
+  --pill-bg: #fffdf9;
   --pill-deadline-bg: #fff8f0;
   --pill-deadline-border: rgba(168, 72, 58, 0.2);
   --pill-deadline-text: #8a3f32;
@@ -39,36 +41,36 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: var(--tg-theme-bg-color, #121416);
-  --surface: var(--tg-theme-secondary-bg-color, #1c2124);
-  --text: var(--tg-theme-text-color, #f2f5f6);
-  --hint: var(--tg-theme-hint-color, #9aa7ad);
-  --sea: var(--tg-theme-button-color, #4fa3bc);
-  --sea-dark: #2d7a90;
-  --sea-soft: color-mix(in srgb, var(--sea) 22%, var(--surface));
-  --foam: color-mix(in srgb, #fff 7%, var(--surface));
+  --bg: #121416;
+  --surface: #1e2428;
+  --text: #f2f5f6;
+  --hint: #a8b4ba;
+  --sea: #5eb3cc;
+  --sea-dark: #3d8aa3;
+  --sea-soft: #243038;
+  --foam: #252b30;
   --add: #5ecf9a;
   --add-bg: rgba(46, 160, 110, 0.22);
   --remove: #f08a7a;
   --remove-bg: rgba(200, 80, 60, 0.22);
-  --btn-text: var(--tg-theme-button-text-color, #fff);
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
-  --nav-bg: color-mix(in srgb, var(--bg) 88%, transparent);
-  --hero-glow: rgba(79, 163, 188, 0.18);
-  --hero-top: color-mix(in srgb, var(--sea) 18%, var(--bg));
-  --pill-bg: color-mix(in srgb, #fff 8%, var(--surface));
-  --pill-deadline-bg: rgba(200, 120, 60, 0.22);
-  --pill-deadline-border: rgba(240, 170, 100, 0.28);
+  --btn-text: #fff;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  --nav-bg: rgba(18, 20, 22, 0.94);
+  --hero-glow: rgba(94, 179, 204, 0.2);
+  --hero-top: #1a2226;
+  --pill-bg: #2a3238;
+  --pill-deadline-bg: rgba(200, 120, 60, 0.25);
+  --pill-deadline-border: rgba(240, 170, 100, 0.3);
   --pill-deadline-text: #f0c49a;
-  --input-bg: color-mix(in srgb, #fff 6%, var(--surface));
+  --input-bg: #2a3238;
   --ok: #6ed6a2;
-  --notice-bg: rgba(200, 140, 50, 0.2);
+  --notice-bg: rgba(200, 140, 50, 0.22);
   --notice-text: #f0c49a;
-  --status-done-bg: rgba(255, 255, 255, 0.08);
-  --status-done-text: #b7c4ca;
-  --status-wait-bg: rgba(200, 140, 50, 0.2);
+  --status-done-bg: rgba(255, 255, 255, 0.1);
+  --status-done-text: #c5d0d6;
+  --status-wait-bg: rgba(200, 140, 50, 0.22);
   --status-wait-text: #f0c49a;
   --err: #ff8a80;
 }

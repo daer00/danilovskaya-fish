@@ -20,8 +20,16 @@ function applyTheme() {
     const bg = w?.themeParams?.bg_color
     dark = bg ? luminance(bg) < 0.45 : window.matchMedia('(prefers-color-scheme: dark)').matches
   }
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-  document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+  const root = document.documentElement
+  root.dataset.theme = dark ? 'dark' : 'light'
+  root.style.colorScheme = dark ? 'dark' : 'light'
+  // Шапка/фон Telegram в тон нашей палитре
+  try {
+    w?.setHeaderColor?.(dark ? '#121416' : '#f4f0e8')
+    w?.setBackgroundColor?.(dark ? '#121416' : '#f4f0e8')
+  } catch {
+    /* старые клиенты */
+  }
 }
 
 

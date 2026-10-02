@@ -9,6 +9,8 @@ type TgWebApp = {
   initDataUnsafe?: { user?: { id: number; first_name?: string; username?: string } }
   themeParams?: Record<string, string>
   colorScheme?: 'light' | 'dark'
+  setHeaderColor?: (color: string) => void
+  setBackgroundColor?: (color: string) => void
   onEvent?: (event: string, cb: () => void) => void
   offEvent?: (event: string, cb: () => void) => void
   MainButton: {
