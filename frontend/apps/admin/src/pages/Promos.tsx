@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { apiGet, apiSend } from '../api'
 import { PageHeader } from '../components/PageHeader'
+import { fmtRub } from '../lib/money'
 import { sanitizeDecimal, toNum } from '../lib/numInput'
 
 type Promo = {
@@ -12,8 +13,12 @@ type Promo = {
   is_active: boolean
   max_uses: number | null
   used_count: number
+  valid_from: string | null
+  valid_until: string | null
   notes: string | null
 }
+
+const dateOnly = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : '')
 
 const blank = () => ({
   code: '',
@@ -22,6 +27,8 @@ const blank = () => ({
   discount_value: '',
   is_active: true,
   max_uses: '',
+  valid_from: '',
+  valid_until: '',
   notes: '',
 })
 
@@ -30,11 +37,15 @@ export function Promos() {
   const [form, setForm] = useState(blank)
   const [editId, setEditId] = useState<number | null>(null)
   const [err, setErr] = useState('')
+  const [loadErr, setLoadErr] = useState('')
 
-  const load = () => apiGet<Promo[]>('/admin/promos').then(setRows)
+  const load = () => {
+    setLoadErr('')
+    return apiGet<Promo[]>('/admin/promos').then(setRows)
+  }
 
   useEffect(() => {
-    load().catch(console.error)
+    load().catch((e) => setLoadErr(e instanceof Error ? e.message : 'Не удалось загрузить'))
   }, [])
 
   function edit(p: Promo) {
@@ -46,12 +57,15 @@ export function Promos() {
       discount_value: String(Number(p.discount_value)),
       is_active: p.is_active,
       max_uses: p.max_uses != null ? String(p.max_uses) : '',
+      valid_from: dateOnly(p.valid_from),
+      valid_until: dateOnly(p.valid_until),
       notes: p.notes || '',
     })
     setErr('')
   }
 
-  async function save() {
+  async function save(e?: FormEvent) {
+    e?.preventDefault()
     const value = toNum(form.discount_value)
     if (!form.code.trim()) return setErr('Укажите код')
     if (!value) return setErr('Укажите скидку')
@@ -62,6 +76,8 @@ export function Promos() {
       discount_value: value,
       is_active: form.is_active,
       max_uses: form.max_uses.trim() ? Number(form.max_uses) : null,
+      valid_from: form.valid_from.trim() || null,
+      valid_until: form.valid_until.trim() || null,
       notes: form.notes.trim() || null,
     }
     try {
@@ -71,8 +87,8 @@ export function Promos() {
       setEditId(null)
       setErr('')
       await load()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Не удалось сохранить')
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Не удалось сохранить')
     }
   }
 
@@ -80,10 +96,11 @@ export function Promos() {
     <div className="page">
       <PageHeader
         title="Промокоды"
-        description="Скидка в процентах или фиксированная сумма. Клиент вводит код в корзине — итог пересчитывается."
+        description="Скидка в процентах или фиксированная сумма. Можно задать период действия."
       />
+      {loadErr && <p className="form-error">{loadErr}</p>}
 
-      <div className="card form">
+      <form className="card form" onSubmit={(ev) => void save(ev)}>
         <h2 className="card__title">{editId ? 'Изменить промокод' : 'Новый промокод'}</h2>
         {err && <p className="form-error">{err}</p>}
         <div className="form-row">
@@ -129,6 +146,16 @@ export function Promos() {
         </div>
         <div className="form-row">
           <label>
+            Действует с
+            <input type="date" value={form.valid_from} onChange={(e) => setForm({ ...form, valid_from: e.target.value })} />
+          </label>
+          <label>
+            Действует до
+            <input type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} />
+          </label>
+        </div>
+        <div className="form-row">
+          <label>
             Лимит использований
             <input
               inputMode="numeric"
@@ -154,9 +181,7 @@ export function Promos() {
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
         />
         <div className="actions">
-          <button type="button" onClick={() => void save()}>
-            {editId ? 'Сохранить' : 'Добавить'}
-          </button>
+          <button type="submit">{editId ? 'Сохранить' : 'Добавить'}</button>
           {editId && (
             <button
               type="button"
@@ -170,17 +195,20 @@ export function Promos() {
             </button>
           )}
         </div>
-      </div>
+      </form>
 
       <div className="simple-list">
         {rows.map((p) => (
           <div key={p.id} className="simple-list__row">
-            <div>
+            <div className="product-row__info">
               <b>{p.code}</b>
-              <span className="muted">
+              <span className="muted product-row__meta">
                 {p.title ? `${p.title} · ` : ''}
-                {p.discount_type === 'percent' ? `−${Number(p.discount_value)}%` : `−${Number(p.discount_value)} ₽`}
+                {p.discount_type === 'percent' ? `−${Number(p.discount_value)}%` : `−${fmtRub(Number(p.discount_value))}`}
                 {` · использовано ${p.used_count}${p.max_uses != null ? `/${p.max_uses}` : ''}`}
+                {p.valid_from || p.valid_until
+                  ? ` · ${dateOnly(p.valid_from) || '…'} — ${dateOnly(p.valid_until) || '…'}`
+                  : ''}
                 {!p.is_active ? ' · выключен' : ''}
               </span>
             </div>

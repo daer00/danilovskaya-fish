@@ -38,7 +38,51 @@ type PastOrder = {
 
 const API = (import.meta.env.VITE_API_BASE ?? '') + '/api/v1'
 const MEDIA_BASE = import.meta.env.VITE_API_BASE ?? ''
+const CART_KEY = 'fish:miniapp:cart'
 const tg = () => window.Telegram?.WebApp
+
+type StoredCartLine = { product_id: number; quantity: number }
+
+function readStoredCart(): StoredCartLine[] {
+  try {
+    const raw = localStorage.getItem(CART_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as StoredCartLine[]
+    return Array.isArray(parsed) ? parsed.filter((x) => x.product_id && x.quantity > 0) : []
+  } catch {
+    return []
+  }
+}
+
+function writeStoredCart(cart: CartItem[]) {
+  localStorage.setItem(
+    CART_KEY,
+    JSON.stringify(cart.map((i) => ({ product_id: i.product.id, quantity: i.quantity }))),
+  )
+}
+
+function restoreCart(products: Product[], stored: StoredCartLine[]): CartItem[] {
+  const out: CartItem[] = []
+  for (const line of stored) {
+    const product = products.find((p) => p.id === line.product_id)
+    if (product) out.push({ product, quantity: line.quantity })
+  }
+  return out
+}
+
+function syncCartProducts(cart: CartItem[], products: Product[]): CartItem[] {
+  return cart
+    .map((item) => {
+      const product = products.find((p) => p.id === item.product.id)
+      return product ? { ...item, product } : null
+    })
+    .filter((x): x is CartItem => x !== null)
+}
+
+function promoPreviewBody(code: string, amount: number) {
+  const init_data = tg()?.initData?.trim() || ''
+  return JSON.stringify({ init_data, code: code.trim(), amount })
+}
 
 function mediaSrc(url: string | null) {
   if (!url) return null
@@ -82,6 +126,19 @@ function unitSuffix(unit: Product['unit']) {
 }
 function fmtQtyUnit(q: number, unit: Product['unit']) {
   return `${fmtQty(q)} ${unitSuffix(unit)}`
+}
+
+function humanizeApiError(raw: string) {
+  const t = raw.toLowerCase()
+  if (t.includes('401') || t.includes('init_data')) {
+    return 'Сессия Telegram устарела. Закройте мини-апп и откройте каталог заново.'
+  }
+  if (t.includes('deadline')) return 'Приём заказов уже закрыт (прошёл дедлайн).'
+  if (t.includes('no_batch')) return 'Сейчас нет открытой партии.'
+  if (t.includes('too_many')) return 'Слишком часто. Подождите несколько секунд.'
+  if (t.includes('product_gone') || t.includes('not in batch')) return 'Товар уже недоступен в этой партии.'
+  if (t.includes('промокод') || t.includes('promo')) return raw.replace(/^\d+\s*/, '').trim() || 'Промокод не подошёл'
+  return 'Не удалось отправить. Попробуйте ещё раз.'
 }
 function qtySubtitle(q: number, product: Product) {
   if (product.unit === 'kg') {
@@ -212,7 +269,11 @@ export function App() {
     [cart],
   )
   const total = promoApplied ? promoApplied.total : subtotal
-  const shopOpen = Boolean(batch?.is_open)
+  const shopOpen = useMemo(() => {
+    if (!batch?.is_open) return false
+    const dl = Date.parse(batch.deadline)
+    return Number.isFinite(dl) ? Date.now() <= dl : true
+  }, [batch])
 
   useEffect(() => {
     Promise.all([
@@ -221,17 +282,27 @@ export function App() {
     ])
       .then(([b, p]) => {
         setBatch(b)
-        setProducts(
-          (Array.isArray(p) ? p : []).map((x: Product) => ({
-            ...x,
-            unit: x.unit === 'kg' ? 'kg' : 'pcs',
-            allow_halves: x.unit === 'kg' ? true : Boolean(x.allow_halves),
-          })),
-        )
+        const list = (Array.isArray(p) ? p : []).map((x: Product) => ({
+          ...x,
+          unit: x.unit === 'kg' ? 'kg' : 'pcs',
+          allow_halves: x.unit === 'kg' ? true : Boolean(x.allow_halves),
+        })) as Product[]
+        setProducts(list)
+        const stored = readStoredCart()
+        if (stored.length) setCart(restoreCart(list, stored))
       })
       .catch(() => setError('Не удалось загрузить каталог'))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!products.length) return
+    setCart((c) => syncCartProducts(c, products))
+  }, [products])
+
+  useEffect(() => {
+    writeStoredCart(cart)
+  }, [cart])
 
   useEffect(() => {
     if (step !== 'profile') return
@@ -245,7 +316,13 @@ export function App() {
     if (!w?.MainButton) return
     const onClick = () => {
       if (step === 'catalog' && cart.length) setStep('cart')
-      else if (step === 'cart' && cart.length) void sendToBot()
+      else if (step === 'cart' && cart.length) {
+        if (!promoApplied) {
+          setPromoErr('Промокод обязателен — введите код зоны/маршрута')
+          return
+        }
+        void sendToBot()
+      }
     }
     w.MainButton.onClick(onClick)
     if (!inTelegram || step === 'profile') {
@@ -255,14 +332,20 @@ export function App() {
       w.MainButton.show()
       w.MainButton.enable()
     } else if (step === 'cart' && cart.length && !busy) {
-      w.MainButton.setText('Оформить в боте')
-      w.MainButton.show()
-      w.MainButton.enable()
+      if (!promoApplied) {
+        w.MainButton.setText('Введите промокод')
+        w.MainButton.show()
+        w.MainButton.enable()
+      } else {
+        w.MainButton.setText('Оформить в боте')
+        w.MainButton.show()
+        w.MainButton.enable()
+      }
     } else {
       w.MainButton.hide()
     }
     return () => w.MainButton.offClick(onClick)
-  }, [step, cart, total, itemCount, busy, inTelegram])
+  }, [step, cart, total, itemCount, busy, inTelegram, promoApplied])
 
   useEffect(() => {
     if (!promoApplied) return
@@ -270,10 +353,12 @@ export function App() {
       setPromoApplied(null)
       return
     }
+    const init = tg()?.initData?.trim()
+    if (!init) return
     void fetch(`${API}/webapp/promo/preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: promoApplied.code, amount: subtotal }),
+      body: promoPreviewBody(promoApplied.code, subtotal),
     })
       .then(async (r) => {
         if (!r.ok) {
@@ -292,19 +377,33 @@ export function App() {
       .catch(() => undefined)
   }, [subtotal, cart.length])
 
+  function clearPromo() {
+    setPromoApplied(null)
+    setPromoInput('')
+    setPromoErr(null)
+  }
+
   async function applyPromo() {
     setPromoErr(null)
     if (!promoInput.trim()) {
-      setPromoApplied(null)
+      clearPromo()
       return
     }
-    if (subtotal <= 0) return
+    if (subtotal <= 0) {
+      setPromoErr('Добавьте товары в корзину')
+      return
+    }
+    const init = tg()?.initData?.trim()
+    if (!init) {
+      setPromoErr('Промокод доступен только в Telegram-боте')
+      return
+    }
     setPromoBusy(true)
     try {
       const r = await fetch(`${API}/webapp/promo/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: promoInput.trim(), amount: subtotal }),
+        body: promoPreviewBody(promoInput, subtotal),
       })
       const text = await r.text()
       if (!r.ok) {
@@ -388,9 +487,11 @@ export function App() {
       return
     }
     const next: CartItem[] = []
+    let skipped = 0
     for (const row of order.items) {
       const product = products.find((p) => p.id === row.product_id)
       if (product) next.push({ product, quantity: Number(row.quantity) })
+      else skipped += 1
     }
     if (!next.length) {
       setError('Товары из этого заказа сейчас недоступны в каталоге')
@@ -399,19 +500,29 @@ export function App() {
     }
     setCart(next)
     setError(null)
+    if (skipped) {
+      setOrderNotice(
+        `В корзину добавлено ${next.length} из ${order.items.length} позиций. Остальное сейчас нет в каталоге.`,
+      )
+    }
     setStep(withChanges ? 'catalog' : 'cart')
     tg()?.HapticFeedback?.notificationOccurred?.('success')
   }
 
   async function sendToBot() {
     if (sending.current || !cart.length) return
+    if (!promoApplied?.code) {
+      setPromoErr('Промокод обязателен — введите код зоны/маршрута')
+      setError('Без промокода заказ не оформить')
+      return
+    }
     sending.current = true
     setBusy(true)
     setError(null)
     setOrderNotice(null)
     const w = tg()
     const initData = w?.initData?.trim() || ''
-    const payload = cartPayload(cart, promoApplied?.code)
+    const payload = cartPayload(cart, promoApplied.code)
 
     try {
       if (initData) {
@@ -433,6 +544,7 @@ export function App() {
           )
         }
         setCart([])
+        localStorage.removeItem(CART_KEY)
         setPromoApplied(null)
         setPromoInput('')
         setStep('profile')
@@ -443,6 +555,14 @@ export function App() {
       }
       if (typeof w?.sendData === 'function') {
         w.sendData(JSON.stringify(payload))
+        setCart([])
+        localStorage.removeItem(CART_KEY)
+        setPromoApplied(null)
+        setPromoInput('')
+        setStep('profile')
+        setOrderNotice('Корзина отправлена в бот. Завершите оформление в чате.')
+        sending.current = false
+        setBusy(false)
         return
       }
       setError('Откройте каталог кнопкой «Каталог» в боте (не через браузер).')
@@ -450,11 +570,7 @@ export function App() {
       setBusy(false)
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''
-      setError(
-        msg.includes('401')
-          ? 'Сессия Telegram устарела. Закройте мини-апп и откройте каталог заново.'
-          : `Не удалось отправить корзину. ${msg || 'Попробуйте ещё раз.'}`,
-      )
+      setError(humanizeApiError(msg))
       sending.current = false
       setBusy(false)
     }
@@ -477,7 +593,8 @@ export function App() {
           <h1>Мои заказы</h1>
           <p className="muted">История ваших заказов и быстрый повтор</p>
           {orderNotice && <p className="notice">{orderNotice}</p>}
-          {profileNote && <p className="err">{profileNote}</p>}
+          {profileNote && <p className="muted">{profileNote}</p>}
+          {error && <p className="err">{error}</p>}
           {ordersLoading ? (
             <p className="empty">Загружаем заказы…</p>
           ) : !orders.length ? (
@@ -522,8 +639,21 @@ export function App() {
   if (!shopOpen) {
     return (
       <div className="page has-nav state closed">
-        <h1>Даниловская рыба</h1>
-        <p>Приём заказов сейчас закрыт.<br />Загляните позже — мы сообщим в боте.</p>
+        {error ? (
+          <>
+            <h1>Не удалось загрузить</h1>
+            <p>{error}</p>
+          </>
+        ) : (
+          <>
+            <h1>Даниловская рыба</h1>
+            <p>
+              Приём заказов сейчас закрыт.
+              <br />
+              Загляните позже — мы сообщим в боте.
+            </p>
+          </>
+        )}
         {nav}
       </div>
     )
@@ -536,6 +666,7 @@ export function App() {
           <h1>Ваш заказ</h1>
           <ol className="howto">
             <li>Проверьте состав заказа</li>
+            <li>Введите промокод зоны — без него заказ не оформить</li>
             <li>Нажмите «Оформить» — бот пришлёт подтверждение</li>
             <li>Оплата и детали — в чате с ботом</li>
           </ol>
@@ -568,8 +699,9 @@ export function App() {
           {!!cart.length && (
             <div className="promo-box">
               <label className="promo-label" htmlFor="promo">
-                Промокод
+                Промокод <span className="promo-req">обязательно</span>
               </label>
+              <p className="promo-hint">Код зоны доставки — без него заказ не отправить</p>
               <div className="promo-row">
                 <input
                   id="promo"
@@ -593,6 +725,11 @@ export function App() {
                   Код {promoApplied.code}: скидка {promoApplied.label} (−{fmtMoney(promoApplied.discount)})
                 </p>
               )}
+              {promoApplied && (
+                <button type="button" className="promo-clear" onClick={clearPromo}>
+                  Убрать промокод
+                </button>
+              )}
               {promoErr && <p className="err">{promoErr}</p>}
             </div>
           )}
@@ -612,8 +749,13 @@ export function App() {
           )}
           {error && <p className="err">{error}</p>}
           {!!cart.length && (!inTelegram || !tg()?.MainButton) && (
-            <button type="button" className="btn wide" disabled={busy} onClick={() => void sendToBot()}>
-              {busy ? 'Отправляем…' : 'Оформить в боте'}
+            <button
+              type="button"
+              className="btn wide"
+              disabled={busy || !promoApplied}
+              onClick={() => void sendToBot()}
+            >
+              {busy ? 'Отправляем…' : promoApplied ? 'Оформить в боте' : 'Сначала введите промокод'}
             </button>
           )}
         </div>
@@ -638,6 +780,11 @@ export function App() {
       {error && <p className="err" style={{ padding: '0 1rem' }}>{error}</p>}
 
       <div className="catalog">
+        {!products.length && (
+          <p className="empty" style={{ gridColumn: '1 / -1' }}>
+            В этой партии пока нет товаров. Загляните позже или напишите нам в бот.
+          </p>
+        )}
         {products.map((p) => {
           const qty = cartQty(cart, p.id)
           const line = Number(p.price) * qty

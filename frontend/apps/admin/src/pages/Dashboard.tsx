@@ -4,7 +4,7 @@ import { apiGet, apiSend } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { SummaryModal } from '../components/SummaryModal'
 import { fromDateTimeLocal, isValidDateParts } from '../lib/datetime'
-import { fmtRub } from '../lib/money'
+import { fmtPct, fmtRub } from '../lib/money'
 
 type Batch = {
   id: number
@@ -23,7 +23,7 @@ type Overview = {
   products: { product_name: string; quantity: number; total: number }[]
 }
 type BotMsg = { code: string; text: string }
-type Order = { batch_id: number; status: string }
+type Order = { batch_id: number; status: string; promo_code?: string | null }
 
 const VERSE_FALLBACK = 'Всё могу в укрепляющем меня Иисусе Христе.\n— Филиппийцам 4:13'
 
@@ -43,9 +43,11 @@ export function Dashboard() {
     pickup_place: 'холл',
   })
   const [err, setErr] = useState('')
+  const [loadErr, setLoadErr] = useState('')
 
-  const load = () =>
-    Promise.all([
+  const load = () => {
+    setLoadErr('')
+    return Promise.all([
       apiGet<Batch[]>('/admin/batches'),
       apiGet<Overview>('/admin/finance/overview'),
       apiGet<Order[]>('/admin/orders'),
@@ -57,9 +59,10 @@ export function Dashboard() {
       const v = msgs.find((m) => m.code === 'dashboard_verse')
       if (v?.text?.trim()) setVerse(v.text.trim())
     })
+  }
 
   useEffect(() => {
-    load().catch(console.error)
+    load().catch((e) => setLoadErr(e instanceof Error ? e.message : 'Не удалось загрузить данные'))
   }, [])
 
   const open = batches.find((b) => b.is_open)
@@ -68,6 +71,20 @@ export function Dashboard() {
     [orders, open],
   )
   const waiting = openOrders.filter((o) => o.status === 'processing' || o.status === 'new').length
+  const promoStats = useMemo(() => {
+    const map = new Map<string, number>()
+    let without = 0
+    for (const o of openOrders) {
+      const code = (o.promo_code || '').trim()
+      if (!code) {
+        without += 1
+        continue
+      }
+      map.set(code, (map.get(code) || 0) + 1)
+    }
+    const rows = [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'))
+    return { rows, without }
+  }, [openOrders])
 
   const monthLabel = overview
     ? (() => {
@@ -79,9 +96,16 @@ export function Dashboard() {
       })()
     : ''
 
+  const received = Number(overview?.received ?? 0)
+  const spent = Number(overview?.spent ?? 0)
+  const margin = received - spent
+  const marginPct = received > 0 ? Math.round((margin / received) * 1000) / 10 : null
+
   async function createWeek() {
     if (!form.pickup_date) return setErr('Укажите дату выдачи — партия привязана к дате')
-    if (!isValidDateParts(form.deadlineDate, form.deadlineTime)) return setErr('Дедлайн')
+    if (!isValidDateParts(form.deadlineDate, form.deadlineTime)) {
+      return setErr('Укажите корректный дедлайн (год 2000–2100)')
+    }
     const title =
       form.title.trim() ||
       new Date(form.pickup_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
@@ -125,6 +149,7 @@ export function Dashboard() {
         title="Главная"
         description="Приём раз в 2 недели: после закрытия партии следующая открывается сама с тем же составом товаров."
       />
+      {loadErr && <p className="form-error">{loadErr}</p>}
 
       <div className="hero-grid">
         <div className={`week-card${open ? ' week-card--on' : ''}`}>
@@ -144,6 +169,26 @@ export function Dashboard() {
               <p className="week-card__stat">
                 {openOrders.length} заказов{waiting ? ` · ${waiting} ждут` : ''}
               </p>
+              {!!openOrders.length && (
+                <div className="promo-stats">
+                  <div className="promo-stats__title">Промокоды (маршруты)</div>
+                  {promoStats.rows.length ? (
+                    <ul className="promo-stats__list">
+                      {promoStats.rows.map(([code, cnt]) => (
+                        <li key={code}>
+                          <span className="promo-stats__code">{code}</span>
+                          <b>{cnt}</b>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="promo-stats__empty">Пока ни одного промокода</p>
+                  )}
+                  {promoStats.without > 0 && (
+                    <p className="promo-stats__warn">Без промокода: {promoStats.without}</p>
+                  )}
+                </div>
+              )}
               <div className="actions">
                 <Link to={`/orders?batch_id=${open.id}`} className="btn-primary">
                   Открыть заказы
@@ -173,15 +218,25 @@ export function Dashboard() {
         <div className="money-card">
           <span className="pill pill--sea">Деньги</span>
           <h2>За {monthLabel || 'месяц'}</h2>
-          <p>Получения и траты текущего месяца.</p>
+          <p>Получения, траты и маржа текущего месяца.</p>
           <div className="money-card__row">
             <div className="money-card__kpi">
-              <b>{fmtRub(Number(overview?.received ?? 0))}</b>
+              <b>{fmtRub(received)}</b>
               <span>Получения</span>
             </div>
             <div className="money-card__kpi">
-              <b>{fmtRub(Number(overview?.spent ?? 0))}</b>
+              <b>{fmtRub(spent)}</b>
               <span>Траты</span>
+            </div>
+          </div>
+          <div className="money-card__row money-card__row--margin">
+            <div className={`money-card__kpi${margin >= 0 ? ' money-card__kpi--ok' : ' money-card__kpi--bad'}`}>
+              <b>{fmtRub(margin)}</b>
+              <span>Маржа</span>
+            </div>
+            <div className={`money-card__kpi${(marginPct ?? 0) >= 0 ? ' money-card__kpi--ok' : ' money-card__kpi--bad'}`}>
+              <b>{fmtPct(marginPct)}</b>
+              <span>Маржа %</span>
             </div>
           </div>
           <div className="actions">
@@ -205,6 +260,8 @@ export function Dashboard() {
             Дата выдачи
             <input
               type="date"
+              min="2000-01-01"
+              max="2100-12-31"
               value={form.pickup_date}
               onChange={(e) => {
                 const pickup_date = e.target.value
@@ -223,7 +280,13 @@ export function Dashboard() {
           <div className="form-row">
             <label>
               Дедлайн — дата
-              <input type="date" value={form.deadlineDate} onChange={(e) => setForm({ ...form, deadlineDate: e.target.value })} />
+              <input
+                type="date"
+                min="2000-01-01"
+                max="2100-12-31"
+                value={form.deadlineDate}
+                onChange={(e) => setForm({ ...form, deadlineDate: e.target.value })}
+              />
             </label>
             <label>
               Время

@@ -93,6 +93,7 @@ class AdminOrderCreate(BaseModel):
     pickup_slot: PickupSlot = PickupSlot.FIRST
     items: list[CartLineIn] = Field(min_length=1)
     status: OrderStatus = OrderStatus.CONFIRMED
+    promo_code: str | None = None
 
 
 def _out(o: Order) -> OrderOut:
@@ -154,7 +155,7 @@ async def create_order(
         raise HTTPException(404, "batch_not_found")
 
     items: list[OrderItem] = []
-    total = Decimal("0")
+    subtotal = Decimal("0")
     for row in payload.items:
         product = await session.get(Product, row.product_id)
         if not product or not product.is_active:
@@ -177,7 +178,7 @@ async def create_order(
         elif qty != qty.to_integral_value():
             raise HTTPException(400, f"«{product.name}» — только целыми")
         line = (bp.sale_price * qty).quantize(Decimal("0.01"))
-        total += line
+        subtotal += line
         items.append(
             OrderItem(
                 product_id=product.id,
@@ -188,21 +189,37 @@ async def create_order(
             )
         )
 
+    from app.services.promos import apply_promo, consume_promo, promo_was_consumed
+
+    status = payload.status if payload.status in ALL_STATUSES else OrderStatus.CONFIRMED
+    if not (payload.promo_code or "").strip():
+        raise HTTPException(400, "Укажите промокод — нужен для маршрута доставки")
+    promo, discount, total = await apply_promo(
+        session, payload.promo_code, subtotal, for_update=True
+    )
+    if not promo:
+        raise HTTPException(400, "Укажите промокод — нужен для маршрута доставки")
+
+
     name = (client.full_name or "").strip() or "Без имени"
     phone = (client.phone or "").strip() or "—"
     order = Order(
         number=await next_order_number(session, batch.id),
         batch_id=batch.id,
         client_id=client.id,
-        status=payload.status if payload.status in ALL_STATUSES else OrderStatus.CONFIRMED,
+        status=status,
         full_name=name,
         phone=phone,
         comment=payload.comment,
         pickup_slot=payload.pickup_slot,
         total=total,
+        promo_code=promo.code if promo else None,
+        discount=discount,
         items=items,
     )
     session.add(order)
+    if promo and promo_was_consumed(status):
+        await consume_promo(session, promo)
     await session.commit()
     order = await load_order(session, order.id)
     assert order
@@ -236,6 +253,9 @@ async def update_items(
         elif patch.unit_price is not None:
             item.line_total = (item.unit_price * item.quantity).quantize(Decimal("0.01"))
     order.total = sum((i.line_total for i in order.items), Decimal("0")).quantize(Decimal("0.01"))
+    disc = Decimal(order.discount or 0).quantize(Decimal("0.01"))
+    if disc > 0:
+        order.total = max(order.total - min(disc, order.total), Decimal("0")).quantize(Decimal("0.01"))
     await session.commit()
     order = await load_order(session, order_id)
     assert order
@@ -254,9 +274,14 @@ async def set_status(
         raise HTTPException(404, "not_found")
     if payload.status not in ALL_STATUSES:
         raise HTTPException(400, f"Неизвестный статус: {payload.status}")
+    from app.services.promos import promo_was_consumed, release_promo
+
+    prev = order.status
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
         order.cancel_reason = payload.cancel_reason
+        if promo_was_consumed(prev):
+            await release_promo(session, order.promo_code)
     elif order.cancel_reason:
         order.cancel_reason = None
     client = await session.get(Client, order.client_id)
@@ -295,7 +320,7 @@ async def purchase_summary(
     rows = await session.execute(
         select(OrderItem.product_name, func.sum(OrderItem.quantity), func.sum(OrderItem.line_total))
         .join(Order)
-        .where(Order.batch_id == batch_id, Order.status != OrderStatus.CANCELLED)
+        .where(Order.batch_id == batch_id, Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]))
         .group_by(OrderItem.product_name)
         .order_by(OrderItem.product_name)
     )

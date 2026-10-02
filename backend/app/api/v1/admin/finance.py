@@ -97,7 +97,7 @@ async def month_overview(
     orders_count = int(
         await session.scalar(
             select(func.count()).select_from(Order).where(
-                Order.status != OrderStatus.CANCELLED,
+                Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
                 Order.created_at >= start_dt,
                 Order.created_at < end_dt,
             )
@@ -109,7 +109,7 @@ async def month_overview(
         select(OrderItem.product_name, func.sum(OrderItem.quantity), func.sum(OrderItem.line_total))
         .join(Order)
         .where(
-            Order.status != OrderStatus.CANCELLED,
+            Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
             Order.created_at >= start_dt,
             Order.created_at < end_dt,
         )

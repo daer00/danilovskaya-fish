@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { apiGet, apiSend } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { fmtRub } from '../lib/money'
@@ -36,35 +36,37 @@ export function Money() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [form, setForm] = useState(empty)
   const [tab, setTab] = useState<'all' | 'income' | 'expense'>('all')
+  const [loadErr, setLoadErr] = useState('')
+  const [err, setErr] = useState('')
 
-  const load = () =>
-    Promise.all([apiGet<Cash[]>('/admin/cash'), apiGet<Overview>('/admin/finance/overview')]).then(([c, o]) => {
+  const load = () => {
+    setLoadErr('')
+    return Promise.all([apiGet<Cash[]>('/admin/cash'), apiGet<Overview>('/admin/finance/overview')]).then(([c, o]) => {
       setRows(c)
       setOverview(o)
     })
+  }
 
   useEffect(() => {
-    load().catch(console.error)
+    load().catch((e) => setLoadErr(e instanceof Error ? e.message : 'Не удалось загрузить'))
   }, [])
 
   const month = overview?.month || monthKey()
-  const totals = useMemo(() => {
-    let income = 0
-    let expense = 0
-    for (const r of rows) {
-      if (!String(r.entry_date).startsWith(month)) continue
-      const n = Number(r.amount) || 0
-      if (r.entry_type === 'income') income += n
-      else expense += n
-    }
-    // заказы месяца тоже в «Получения»
-    const orders = Number(overview?.revenue ?? 0)
-    return { income: income + orders, expense }
-  }, [rows, month, overview?.revenue])
+  const totals = useMemo(
+    () => ({
+      income: Number(overview?.received ?? 0),
+      expense: Number(overview?.spent ?? 0),
+    }),
+    [overview?.received, overview?.spent],
+  )
 
-  async function save() {
+  async function save(e?: FormEvent) {
+    e?.preventDefault()
     const amount = toNum(form.amount)
-    if (!form.title.trim() || !amount || !form.entry_date) return
+    if (!form.title.trim()) return setErr('Укажите комментарий')
+    if (!amount) return setErr('Укажите сумму')
+    if (!form.entry_date) return setErr('Укажите дату')
+    setErr('')
     await apiSend('POST', '/admin/cash', { ...form, amount })
     setForm(empty())
     await load()
@@ -76,11 +78,17 @@ export function Money() {
     await load()
   }
 
-  const list = rows.filter((r) => tab === 'all' || r.entry_type === tab)
+  const list = rows.filter(
+    (r) => String(r.entry_date).startsWith(month) && (tab === 'all' || r.entry_type === tab),
+  )
 
   return (
     <div className="page">
-      <PageHeader title="Деньги" description="Получения и траты за месяц. Заказы считаются в получениях." />
+      <PageHeader
+        title="Деньги"
+        description="KPI за месяц как на главной: заказы + ручные получения / траты. Черновики корзины не считаются."
+      />
+      {loadErr && <p className="form-error">{loadErr}</p>}
 
       <div className="kpi-grid kpi-grid--2">
         <div className={`kpi kpi--pos${form.entry_type === 'income' ? ' kpi--focus' : ''}`}>
@@ -93,8 +101,9 @@ export function Money() {
         </div>
       </div>
 
-      <div className="card form">
+      <form className="card form" onSubmit={(e) => void save(e)}>
         <h2 className="card__title">Добавить</h2>
+        {err && <p className="form-error">{err}</p>}
         <div className="form-row">
           <label>
             Тип
@@ -123,10 +132,8 @@ export function Money() {
             }}
           />
         </label>
-        <button type="button" onClick={() => void save()}>
-          Сохранить
-        </button>
-      </div>
+        <button type="submit">Сохранить</button>
+      </form>
 
       <div className="pipeline">
         {(

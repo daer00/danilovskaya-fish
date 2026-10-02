@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, time
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -27,14 +28,41 @@ class PromoIn(BaseModel):
     discount_value: Decimal
     is_active: bool = True
     max_uses: int | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
     notes: str | None = None
 
 
-class PromoOut(PromoIn):
+class PromoOut(BaseModel):
     id: int
+    code: str
+    title: str | None
+    discount_type: DiscountType
+    discount_value: Decimal
+    is_active: bool
+    max_uses: int | None
     used_count: int
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    notes: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+def _parse_day_start(raw: str | None) -> datetime | None:
+    if not raw or not str(raw).strip():
+        return None
+    s = str(raw).strip()[:10]
+    d = datetime.strptime(s, "%Y-%m-%d").date()
+    return datetime.combine(d, time.min, tzinfo=UTC)
+
+
+def _parse_day_end(raw: str | None) -> datetime | None:
+    if not raw or not str(raw).strip():
+        return None
+    s = str(raw).strip()[:10]
+    d = datetime.strptime(s, "%Y-%m-%d").date()
+    return datetime.combine(d, time(23, 59, 59), tzinfo=UTC)
 
 
 def _validate(payload: PromoIn) -> dict:
@@ -47,10 +75,16 @@ def _validate(payload: PromoIn) -> dict:
         raise HTTPException(400, "Процент не больше 100")
     if payload.max_uses is not None and payload.max_uses < 0:
         raise HTTPException(400, "Лимит использований некорректный")
+    vf = _parse_day_start(payload.valid_from)
+    vu = _parse_day_end(payload.valid_until)
+    if vf and vu and vf > vu:
+        raise HTTPException(400, "Дата начала позже даты окончания")
     data = payload.model_dump()
     data["code"] = code
     data["title"] = (payload.title or "").strip() or None
     data["notes"] = (payload.notes or "").strip() or None
+    data["valid_from"] = vf
+    data["valid_until"] = vu
     return data
 
 

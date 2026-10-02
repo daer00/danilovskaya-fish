@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiGet, apiSend } from '../api'
 import { PageHeader } from '../components/PageHeader'
+import { fromDateTimeLocal, isValidDateParts, toDateTimeLocal } from '../lib/datetime'
 import { fmtRub } from '../lib/money'
 import { sanitizeDecimal, toNum } from '../lib/numInput'
 
@@ -9,6 +10,7 @@ type Batch = {
   id: number
   title: string
   pickup_date: string
+  pickup_place: string
   deadline: string
   is_open: boolean
 }
@@ -50,6 +52,14 @@ export function BatchSetup() {
   const [ok, setOk] = useState('')
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [editingDates, setEditingDates] = useState(false)
+  const [dateForm, setDateForm] = useState({
+    title: '',
+    pickup_date: '',
+    pickup_place: 'холл',
+    deadlineDate: '',
+    deadlineTime: '12:00',
+  })
   const [neu, setNeu] = useState({
     name: '',
     sale_per_kg: '',
@@ -66,6 +76,14 @@ export function BatchSetup() {
     ]).then(([b, lines, p]) => {
       if (!b) throw new Error('Партия не найдена')
       setBatch(b)
+      const dt = toDateTimeLocal(b.deadline)
+      setDateForm({
+        title: b.title,
+        pickup_date: b.pickup_date,
+        pickup_place: b.pickup_place || 'холл',
+        deadlineDate: dt.date,
+        deadlineTime: dt.time,
+      })
       setRows(
         lines.map((l) => ({
           ...l,
@@ -90,6 +108,33 @@ export function BatchSetup() {
   function patch(pid: number, part: Partial<Line>) {
     setRows((list) => list.map((r) => (r.product_id === pid ? { ...r, ...part } : r)))
     setOk('')
+  }
+
+  async function saveDates(e?: FormEvent) {
+    e?.preventDefault()
+    if (!batch) return
+    if (!dateForm.pickup_date) return setErr('Укажите дату выдачи')
+    if (!isValidDateParts(dateForm.deadlineDate, dateForm.deadlineTime)) {
+      return setErr('Укажите корректный дедлайн (год 2000–2100)')
+    }
+    setErr('')
+    setSaving(true)
+    try {
+      const updated = await apiSend<Batch>('PATCH', `/admin/batches/${batch.id}`, {
+        title: dateForm.title.trim() || batch.title,
+        deadline: fromDateTimeLocal(dateForm.deadlineDate, dateForm.deadlineTime),
+        pickup_date: dateForm.pickup_date,
+        pickup_place: dateForm.pickup_place.trim() || 'холл',
+        is_open: batch.is_open,
+      })
+      setBatch(updated)
+      setEditingDates(false)
+      setOk('Даты партии сохранены')
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : 'Не удалось сохранить даты')
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function save() {
@@ -161,9 +206,14 @@ export function BatchSetup() {
         }
         actions={
           <>
-            <Link to="/" className="btn--ghost">
-              ← Главная
+            <Link to="/batches" className="btn--ghost">
+              ← Партии
             </Link>
+            {batch && (
+              <button type="button" className="btn--ghost" onClick={() => setEditingDates((v) => !v)}>
+                {editingDates ? 'Скрыть даты' : 'Изменить даты'}
+              </button>
+            )}
             {batch && (
               <button
                 type="button"
@@ -171,7 +221,7 @@ export function BatchSetup() {
                 onClick={() => {
                   if (!confirm(`Удалить партию «${batch.title}» вместе с заказами?`)) return
                   void apiSend('DELETE', `/admin/batches/${batch.id}`)
-                    .then(() => nav('/'))
+                    .then(() => nav('/batches'))
                     .catch((e) => setErr(e instanceof Error ? e.message : 'Не удалось удалить'))
                 }}
               >
@@ -181,6 +231,67 @@ export function BatchSetup() {
           </>
         }
       />
+
+      {editingDates && batch && (
+        <form className="card form" onSubmit={(e) => void saveDates(e)}>
+          <h2 className="card__title">Даты и дедлайн</h2>
+          <label>
+            Название
+            <input
+              value={dateForm.title}
+              onChange={(e) => setDateForm({ ...dateForm, title: e.target.value })}
+            />
+          </label>
+          <div className="form-row">
+            <label>
+              Дата выдачи
+              <input
+                type="date"
+                min="2000-01-01"
+                max="2100-12-31"
+                value={dateForm.pickup_date}
+                onChange={(e) => setDateForm({ ...dateForm, pickup_date: e.target.value })}
+              />
+            </label>
+            <label>
+              Место
+              <input
+                value={dateForm.pickup_place}
+                onChange={(e) => setDateForm({ ...dateForm, pickup_place: e.target.value })}
+                placeholder="холл"
+              />
+            </label>
+          </div>
+          <div className="form-row">
+            <label>
+              Дедлайн — дата
+              <input
+                type="date"
+                min="2000-01-01"
+                max="2100-12-31"
+                value={dateForm.deadlineDate}
+                onChange={(e) => setDateForm({ ...dateForm, deadlineDate: e.target.value })}
+              />
+            </label>
+            <label>
+              Время
+              <input
+                type="time"
+                value={dateForm.deadlineTime}
+                onChange={(e) => setDateForm({ ...dateForm, deadlineTime: e.target.value })}
+              />
+            </label>
+          </div>
+          <div className="actions">
+            <button type="submit" disabled={saving}>
+              {saving ? '…' : 'Сохранить даты'}
+            </button>
+            <button type="button" className="btn--ghost" onClick={() => setEditingDates(false)}>
+              Отмена
+            </button>
+          </div>
+        </form>
+      )}
 
       {err && <p className="form-error">{err}</p>}
       {ok && <p className="muted">{ok}</p>}

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.outbox import require_bot_token
 from app.core.database import get_session
 from app.enums import PICKUP_LABELS, STATUS_LABELS, OrderStatus, PickupSlot
 from app.models.client import Client
@@ -29,7 +30,7 @@ from app.services.orders import (
     render,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_bot_token)])
 
 
 class CartItemIn(BaseModel):
@@ -169,7 +170,7 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
         raise HTTPException(404, "client_not_found")
 
     items, subtotal = await build_order_items(session, payload.items, batch.id)
-    from app.services.promos import apply_promo
+    from app.services.promos import apply_promo, consume_promo
 
     processing = await session.scalar(
         select(Order)
@@ -184,8 +185,11 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
     )
 
     code = payload.promo_code or (processing.promo_code if processing else None)
-    already_counted = bool(processing and processing.promo_code)
-    promo, discount, total = await apply_promo(session, code, subtotal)
+    if not (code or "").strip():
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
+    promo, discount, total = await apply_promo(session, code, subtotal, for_update=True)
+    if not promo:
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
 
     client.full_name = payload.full_name
     client.phone = payload.phone
@@ -220,11 +224,7 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
             items=items,
         )
         session.add(order)
-        if promo:
-            promo.used_count = int(promo.used_count or 0) + 1
-    if promo and not already_counted and processing:
-        # промо уже учли при создании из miniapp
-        pass
+    await consume_promo(session, promo)
     await session.flush()
 
     ph = {
@@ -237,7 +237,10 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
         "собрание": PICKUP_LABELS.get(order.pickup_slot or "", "—"),
         **batch_placeholders(batch),
     }
-    await notify_admins(session, render(await get_msg(session, "admin_new_order"), **ph))
+    admin_text = render(await get_msg(session, "admin_new_order"), **ph)
+    if promo and discount > 0:
+        admin_text += f"\nПромокод {promo.code}: −{fmt_money(discount)} ₽"
+    await notify_admins(session, admin_text)
     await session.commit()
     order = await session.scalar(select(Order).where(Order.id == order.id).options(selectinload(Order.items)))
     assert order
@@ -286,7 +289,13 @@ async def cancel_by_client(
     if order.status not in (OrderStatus.NEW, OrderStatus.PROCESSING):
         raise HTTPException(400, "already_confirmed")
 
+    from app.services.promos import promo_was_consumed, release_promo
+
+    prev_status = order.status
+    code = order.promo_code
     order.status = OrderStatus.CANCELLED
+    if promo_was_consumed(prev_status):
+        await release_promo(session, code)
     ph = {
         "номер": str(order.number),
         "имя": order.full_name,

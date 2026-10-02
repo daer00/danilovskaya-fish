@@ -10,6 +10,7 @@ import { Login } from './pages/Login'
 import { Messages } from './pages/Messages'
 import { Money } from './pages/Money'
 import { Orders } from './pages/Orders'
+import { Batches } from './pages/Batches'
 import { Promos } from './pages/Promos'
 
 function Protected() {
@@ -33,7 +34,7 @@ export function App() {
           <Route path="promos" element={<Promos />} />
           <Route path="money" element={<Money />} />
           <Route path="bot-texts" element={<BotTexts />} />
-          <Route path="batches" element={<Navigate to="/" replace />} />
+          <Route path="batches" element={<Batches />} />
           <Route path="batches/:id" element={<BatchSetup />} />
           <Route path="expenses" element={<Navigate to="/money" replace />} />
           <Route path="summary" element={<Navigate to="/" replace />} />

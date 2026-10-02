@@ -40,6 +40,7 @@ export function NewOrderForm({
   const [openSug, setOpenSug] = useState(false)
   const [lines, setLines] = useState<Line[]>([{ product_id: 0, quantity: 1 }])
   const [comment, setComment] = useState('')
+  const [promoCode, setPromoCode] = useState('')
   const [pickupSlot, setPickupSlot] = useState<'first' | 'second'>('first')
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
@@ -167,6 +168,7 @@ export function NewOrderForm({
 
   async function save() {
     if (!batchId) return setErr('Выберите партию')
+    if (!promoCode.trim()) return setErr('Укажите промокод — нужен для маршрута доставки')
     const items = lines.filter((l) => l.product_id && l.quantity > 0)
     if (!items.length) return setErr('Добавьте хотя бы одну позицию')
     setErr('')
@@ -178,6 +180,7 @@ export function NewOrderForm({
         batch_id: Number(batchId),
         comment: comment.trim() || null,
         pickup_slot: pickupSlot,
+        promo_code: promoCode.trim() || null,
         items: items.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
         status: 'confirmed',
       })
@@ -329,12 +332,23 @@ export function NewOrderForm({
       </label>
 
       <label>
+        Промокод (обязательно)
+        <input
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          placeholder="код зоны / маршрута"
+          required
+        />
+      </label>
+
+      <label>
         Комментарий
         <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="необязательно" />
       </label>
 
       <p className="new-order__total">
-        Итого: <b>{total.toLocaleString('ru-RU')} ₽</b>
+        Сумма позиций: <b>{total.toLocaleString('ru-RU')} ₽</b>
+        {promoCode.trim() ? <span className="muted"> · скидка применится на сервере</span> : null}
       </p>
 
       <div className="actions">

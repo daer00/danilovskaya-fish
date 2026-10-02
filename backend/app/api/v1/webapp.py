@@ -53,6 +53,7 @@ class InitIn(BaseModel):
 
 
 class PromoPreviewIn(BaseModel):
+    init_data: str = Field(min_length=1)
     code: str = Field(min_length=1)
     amount: Decimal = Field(gt=0)
 
@@ -189,7 +190,11 @@ async def submit_cart(
     client = await _upsert_client(session, user)
     rows = [OrderLineIn(product_id=i.product_id, quantity=Decimal(i.quantity)) for i in body.items]
     items, subtotal = await build_order_items(session, rows, batch.id)
+    if not (body.promo_code or "").strip():
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
     promo, discount, total = await apply_promo(session, body.promo_code, subtotal)
+    if not promo:
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
 
     for old in await session.scalars(
         select(Order).where(
@@ -216,8 +221,7 @@ async def submit_cart(
         items=items,
     )
     session.add(order)
-    if promo:
-        promo.used_count = int(promo.used_count or 0) + 1
+    # used_count списываем только при подтверждении (NEW), не на черновике
     await session.flush()
 
     payload = {
@@ -248,6 +252,7 @@ async def preview_promo(
     body: PromoPreviewIn,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PromoPreviewOut:
+    _validate_webapp_init(body.init_data)
     promo, discount, total = await apply_promo(session, body.code, body.amount)
     assert promo
     if promo.discount_type == "percent":

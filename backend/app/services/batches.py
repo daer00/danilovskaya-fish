@@ -33,7 +33,9 @@ def batch_title(pickup: date) -> str:
 
 async def open_successor_batch(session: AsyncSession, source: Batch) -> Batch | None:
     """После закрытия партии открыть следующую (+2 недели) с тем же составом товаров."""
-    if await session.scalar(select(Batch.id).where(Batch.is_open.is_(True)).limit(1)):
+    # Блокируем открытые партии, чтобы два воркера не создали двух наследников.
+    open_now = list(await session.scalars(select(Batch).where(Batch.is_open.is_(True)).with_for_update()))
+    if open_now:
         return None
 
     pickup = source.pickup_date + timedelta(days=CYCLE_DAYS)

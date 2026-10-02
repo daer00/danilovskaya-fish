@@ -5,6 +5,7 @@ export const NAV = [
   { path: '/clients', label: 'Клиенты' },
   { path: '/messages', label: 'Сообщения' },
   { path: '/catalog', label: 'Товары' },
+  { path: '/batches', label: 'Партии' },
   { path: '/promos', label: 'Промокоды' },
   { path: '/money', label: 'Деньги' },
   { path: '/bot-texts', label: 'Тексты бота' },

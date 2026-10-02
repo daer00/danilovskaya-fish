@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiGet, apiSend } from '../api'
 import { NewOrderForm } from '../components/NewOrderForm'
 import { PageHeader } from '../components/PageHeader'
+import { ORDER_STATUS_LABEL, ORDER_STATUS_OPTIONS } from '../lib/orderStatuses'
 import { statusClass } from '../lib/orderStatus'
 
 type Item = {
@@ -30,22 +31,13 @@ type Order = {
   items: Item[]
 }
 type Batch = { id: number; title: string; is_open: boolean }
-
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: 'processing', label: 'Оформляется' },
-  { value: 'new', label: 'Новый' },
-  { value: 'confirmed', label: 'Подтверждён' },
-  { value: 'ready', label: 'К выдаче' },
-  { value: 'completed', label: 'Выдан' },
-  { value: 'cancelled', label: 'Отменён' },
-]
-
-const STATUS_LABEL: Record<string, string> = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]))
+type CatalogProduct = { id: number; name: string; is_active: boolean }
 
 export function Orders() {
   const [params, setParams] = useSearchParams()
   const [rows, setRows] = useState<Order[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
+  const [products, setProducts] = useState<CatalogProduct[]>([])
   const batchFromUrl = params.get('batch_id')
   const fromClients = params.get('from') === 'clients'
   const [batchId, setBatchId] = useState<number | 'all'>(() => {
@@ -53,24 +45,28 @@ export function Orders() {
     return batchFromUrl && Number.isFinite(n) && n > 0 ? n : 'all'
   })
   const [q, setQ] = useState(params.get('q') || '')
+  const [product, setProduct] = useState(params.get('product') || '')
   const [openId, setOpenId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
 
-  async function load(bid: number | 'all' = batchId, query = q) {
+  async function load(bid: number | 'all' = batchId, query = q, fish = product) {
     setErr('')
     setLoading(true)
     try {
       const p = new URLSearchParams()
       if (bid !== 'all') p.set('batch_id', String(bid))
       if (query.trim()) p.set('q', query.trim())
+      if (fish.trim()) p.set('product', fish.trim())
       const qs = p.toString()
-      const [orders, b] = await Promise.all([
+      const [orders, b, catalog] = await Promise.all([
         apiGet<Order[]>(`/admin/orders${qs ? `?${qs}` : ''}`),
         batches.length ? Promise.resolve(batches) : apiGet<Batch[]>('/admin/batches'),
+        products.length ? Promise.resolve(products) : apiGet<CatalogProduct[]>('/admin/catalog'),
       ])
       if (!batches.length) setBatches(b)
+      if (!products.length) setProducts(catalog)
       setRows(orders)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Не удалось загрузить заказы')
@@ -82,35 +78,42 @@ export function Orders() {
 
   useEffect(() => {
     setQ(params.get('q') || '')
+    setProduct(params.get('product') || '')
     const raw = params.get('batch_id')
     const n = Number(raw)
     setBatchId(raw && Number.isFinite(n) && n > 0 ? n : 'all')
   }, [params])
 
   useEffect(() => {
-    void load(batchId, q)
+    void load(batchId, q, product)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchId, q])
+  }, [batchId, q, product])
+
+  function patchParams(patch: Record<string, string | null>) {
+    const next = new URLSearchParams(params)
+    for (const [k, v] of Object.entries(patch)) {
+      if (!v) next.delete(k)
+      else next.set(k, v)
+    }
+    setParams(next, { replace: true })
+  }
 
   function changeBatch(next: number | 'all') {
     setBatchId(next)
-    const nextParams = new URLSearchParams(params)
-    if (next === 'all') nextParams.delete('batch_id')
-    else nextParams.set('batch_id', String(next))
-    setParams(nextParams, { replace: true })
+    patchParams({ batch_id: next === 'all' ? null : String(next) })
   }
 
-  const filtered = rows.filter((o) => {
-    if (!q.trim()) return true
-    const n = q.toLowerCase()
-    return (
-      (o.full_name || '').toLowerCase().includes(n) ||
-      (o.phone || '').includes(n) ||
-      String(o.number).includes(n) ||
-      (o.состав || '').toLowerCase().includes(n) ||
-      (o.pickup_label || '').toLowerCase().includes(n)
-    )
-  })
+  function changeProduct(next: string) {
+    setProduct(next)
+    patchParams({ product: next || null })
+  }
+
+  const fishOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const p of products) if (p.is_active !== false) names.add(p.name)
+    for (const o of rows) for (const i of o.items || []) names.add(i.product_name)
+    return [...names].sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [products, rows])
 
   async function changeStatus(o: Order, status: string) {
     if (status === o.status) return
@@ -118,7 +121,7 @@ export function Orders() {
     const prev = o.status
     const prevLabel = o.status_label
     setRows((list) =>
-      list.map((x) => (x.id === o.id ? { ...x, status, status_label: STATUS_LABEL[status] || status } : x)),
+      list.map((x) => (x.id === o.id ? { ...x, status, status_label: ORDER_STATUS_LABEL[status] || status } : x)),
     )
     try {
       const updated = await apiSend<Order>('PATCH', `/admin/orders/${o.id}/status`, { status, cancel_reason })
@@ -153,7 +156,7 @@ export function Orders() {
     <div className="page">
       <PageHeader
         title="Заказы"
-        description={`Из Telegram и вручную · ${filtered.length} шт.`}
+        description={`Из Telegram и вручную · ${rows.length} шт.`}
         actions={
           <>
             {fromClients && (
@@ -174,6 +177,19 @@ export function Orders() {
                 </option>
               ))}
             </select>
+            <select
+              className="select-inline"
+              value={product}
+              onChange={(e) => changeProduct(e.target.value)}
+              aria-label="Фильтр по рыбе"
+            >
+              <option value="">Все рыбы</option>
+              {fishOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
             <button type="button" className="btn--ghost" onClick={() => void load()}>
               Обновить
             </button>
@@ -191,7 +207,7 @@ export function Orders() {
           onDone={() => {
             setCreating(false)
             changeBatch('all')
-            void load('all', q)
+            void load('all', q, product)
           }}
         />
       )}
@@ -201,30 +217,43 @@ export function Orders() {
         type="search"
         placeholder="Найти клиента или заказ…"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          setQ(e.target.value)
+          patchParams({ q: e.target.value.trim() || null })
+        }}
       />
 
       {err && <p className="form-error">{err}</p>}
       {loading && !rows.length && <p className="muted">Загрузка…</p>}
 
-      {!loading && !filtered.length && (
+      {!loading && !rows.length && (
         <div className="empty">
-          {selectedBatch ? (
+          {selectedBatch || product || q.trim() ? (
             <>
-              В партии «{selectedBatch.title}» заказов нет.
-              <div style={{ marginTop: '0.75rem' }}>
-                <button type="button" className="btn--ghost" onClick={() => changeBatch('all')}>
-                  Показать все партии
-                </button>
-              </div>
-            </>
-          ) : q.trim() ? (
-            <>
-              По запросу «{q}» ничего не найдено.
-              <div style={{ marginTop: '0.75rem' }}>
-                <button type="button" className="btn--ghost" onClick={() => setQ('')}>
-                  Сбросить поиск
-                </button>
+              По текущим фильтрам заказов нет.
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {selectedBatch && (
+                  <button type="button" className="btn--ghost" onClick={() => changeBatch('all')}>
+                    Все партии
+                  </button>
+                )}
+                {product && (
+                  <button type="button" className="btn--ghost" onClick={() => changeProduct('')}>
+                    Все рыбы
+                  </button>
+                )}
+                {q.trim() && (
+                  <button
+                    type="button"
+                    className="btn--ghost"
+                    onClick={() => {
+                      setQ('')
+                      patchParams({ q: null })
+                    }}
+                  >
+                    Сбросить поиск
+                  </button>
+                )}
               </div>
             </>
           ) : (
@@ -234,8 +263,10 @@ export function Orders() {
       )}
 
       <div className="client-list">
-        {filtered.map((o) => {
+        {rows.map((o) => {
           const open = openId === o.id
+          const subtotal = (o.items || []).reduce((s, i) => s + Number(i.line_total), 0)
+          const disc = Number(o.discount) || 0
           return (
             <article key={o.id} className="client-card">
               <div className="client-card__head order-card__head">
@@ -248,23 +279,31 @@ export function Orders() {
                       {o.phone}
                       {o.pickup_label ? ` · ${o.pickup_label}` : ''}
                     </span>
+                    {o.promo_code ? (
+                      <span className="order-promo-badge">{o.promo_code}</span>
+                    ) : (
+                      <span className="order-promo-missing">без промокода</span>
+                    )}
                   </div>
                 </button>
                 <div className="client-card__meta order-card__meta">
                   <select
                     className={`order-status ${statusClass(o.status)}`}
-                    value={STATUS_OPTIONS.some((s) => s.value === o.status) ? o.status : 'new'}
+                    value={ORDER_STATUS_OPTIONS.some((s) => s.value === o.status) ? o.status : 'new'}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => void changeStatus(o, e.target.value)}
                     aria-label="Статус заказа"
                   >
-                    {STATUS_OPTIONS.map((s) => (
+                    {ORDER_STATUS_OPTIONS.map((s) => (
                       <option key={s.value} value={s.value}>
                         {s.label}
                       </option>
                     ))}
                   </select>
-                  <em className="order-total">{fmtMoney(Number(o.total))} ₽</em>
+                  <em className="order-total">
+                    {disc > 0 && <span className="order-total__old">{fmtMoney(subtotal)} ₽ </span>}
+                    {fmtMoney(Number(o.total))} ₽
+                  </em>
                 </div>
               </div>
 
@@ -287,15 +326,22 @@ export function Orders() {
                       </li>
                     ))}
                   </ul>
+                  {disc > 0 && (
+                    <>
+                      <div className="order-detail__sum order-detail__sum--sub">
+                        <span>Сумма позиций</span>
+                        <strong>{fmtMoney(subtotal)} ₽</strong>
+                      </div>
+                      <div className="order-detail__sum order-detail__sum--disc">
+                        <span>Промокод {o.promo_code}</span>
+                        <strong>−{fmtMoney(disc)} ₽</strong>
+                      </div>
+                    </>
+                  )}
                   <div className="order-detail__sum">
                     <span>Итого</span>
                     <strong>{fmtMoney(Number(o.total))} ₽</strong>
                   </div>
-                  {!!Number(o.discount) && (
-                    <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-                      Промокод {o.promo_code}: −{fmtMoney(Number(o.discount))} ₽
-                    </p>
-                  )}
                   <div className="actions">
                     <button type="button" className="btn--ghost" onClick={() => void notifyTg(o)}>
                       В Telegram

@@ -312,9 +312,9 @@ export function Catalog() {
                 <div className="product-row__thumb">
                   {p.photo_url ? <img src={p.photo_url} alt="" /> : <span />}
                 </div>
-                <div>
+                <div className="product-row__info">
                   <b>{p.name}</b>
-                  <span className="muted">
+                  <span className="muted product-row__meta">
                     продажа {sale} ₽/{ul}
                     {buy != null ? ` · закупка ${buy} ₽/${ul}` : ''}
                     {buy != null ? ` · маржа ≈ ${round2(sale - buy)} ₽` : ''}

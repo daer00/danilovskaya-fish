@@ -47,19 +47,25 @@ async def _deadline_jobs() -> None:
 
             # закрытие → сразу открываем следующую партию (+2 недели)
             if now >= dl:
-                b.is_open = False
-                if b.closed_notified_at is None:
+                locked = await session.scalar(
+                    select(Batch).where(Batch.id == b.id, Batch.is_open.is_(True)).with_for_update()
+                )
+                if not locked:
+                    continue
+                locked.is_open = False
+                paid = Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING])
+                if locked.closed_notified_at is None:
                     rows = await session.execute(
                         select(OrderItem.product_name, func.sum(OrderItem.quantity), func.sum(OrderItem.line_total))
                         .join(Order)
-                        .where(Order.batch_id == b.id, Order.status != OrderStatus.CANCELLED)
+                        .where(Order.batch_id == locked.id, paid)
                         .group_by(OrderItem.product_name)
                     )
                     lines = [f"• {name}: {fmt_qty(qty)} шт. ({fmt_money(s)} ₽)" for name, qty, s in rows.all()]
                     summary = "\n".join(lines) or "нет заказов"
                     q = await session.execute(
                         select(func.count(Order.id), func.coalesce(func.sum(Order.total), 0)).where(
-                            Order.batch_id == b.id, Order.status != OrderStatus.CANCELLED
+                            Order.batch_id == locked.id, paid
                         )
                     )
                     cnt, total = q.one()
@@ -68,11 +74,11 @@ async def _deadline_jobs() -> None:
                         сводка=summary,
                         количество=str(cnt),
                         сумма=fmt_money(Decimal(total or 0)),
-                        **batch_placeholders(b),
+                        **batch_placeholders(locked),
                     )
                     await notify_admins(session, text)
-                    b.closed_notified_at = now
-                await open_successor_batch(session, b)
+                    locked.closed_notified_at = now
+                await open_successor_batch(session, locked)
         await session.commit()
 
 
