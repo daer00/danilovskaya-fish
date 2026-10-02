@@ -259,6 +259,55 @@ body { margin: 0; min-height: 100dvh; }
   font-size: 1.05rem;
   font-weight: 700;
 }
+.total-old {
+  opacity: 0.7;
+  text-decoration: line-through;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-right: 0.45rem;
+}
+
+.promo-box {
+  margin-top: 1rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 14px;
+  background: var(--card, #fff);
+  border: 1px solid rgba(31, 95, 115, 0.15);
+}
+.promo-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--hint);
+  margin-bottom: 0.4rem;
+}
+.promo-row {
+  display: flex;
+  gap: 0.45rem;
+}
+.promo-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 0.7rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(31, 95, 115, 0.25);
+  background: #fff;
+}
+.promo-btn {
+  padding: 0.7rem 0.9rem;
+  background: var(--sea-soft, #e8f2f0);
+  color: var(--sea);
+  white-space: nowrap;
+}
+.promo-btn:disabled { opacity: 0.55; }
+.promo-ok {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  color: var(--ok, #1f7a4d);
+  font-weight: 600;
+}
 
 .btn {
   border: none;

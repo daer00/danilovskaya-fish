@@ -12,6 +12,7 @@ from app.models.business_plan import BusinessPlanLine
 from app.models.cash_entry import CashEntry
 from app.models.expense import Expense
 from app.models.product import Product
+from app.models.promo_code import PromoCode
 
 __all__ = [
     "Base",
@@ -19,6 +20,7 @@ __all__ = [
     "Batch",
     "BatchProduct",
     "Product",
+    "PromoCode",
     "Client",
     "ClientMessage",
     "Order",

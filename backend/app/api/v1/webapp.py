@@ -26,6 +26,7 @@ from app.models.batch import Batch
 from sqlalchemy.orm import selectinload
 from app.api.v1.orders import CartItemIn as OrderLineIn, _out, build_order_items
 from app.services.orders import active_batch, next_order_number
+from app.services.promos import apply_promo
 
 router = APIRouter()
 
@@ -44,10 +45,25 @@ class WebappCartItemIn(BaseModel):
 class CheckoutIn(BaseModel):
     init_data: str = Field(min_length=1)
     items: list[WebappCartItemIn] = Field(min_length=1, max_length=_MAX_ITEMS)
+    promo_code: str | None = None
 
 
 class InitIn(BaseModel):
     init_data: str = Field(min_length=1)
+
+
+class PromoPreviewIn(BaseModel):
+    code: str = Field(min_length=1)
+    amount: Decimal = Field(gt=0)
+
+
+class PromoPreviewOut(BaseModel):
+    code: str
+    discount_type: str
+    discount_value: Decimal
+    discount: Decimal
+    total: Decimal
+    label: str
 
 
 class WebappOrderOut(BaseModel):
@@ -60,6 +76,8 @@ class WebappOrderOut(BaseModel):
     состав: str
     pickup_date: str
     created_at: str
+    promo_code: str | None = None
+    discount: str = "0"
     items: list[dict[str, object]]
 
 
@@ -80,6 +98,8 @@ def _to_webapp_order(order: Order, batch: Batch | None) -> WebappOrderOut:
         состав=base.состав,
         pickup_date=batch.pickup_date.isoformat() if batch else "",
         created_at=order.created_at.isoformat(),
+        promo_code=order.promo_code,
+        discount=str(order.discount or 0),
         items=[
             {
                 "product_id": i.product_id,
@@ -168,7 +188,8 @@ async def submit_cart(
 
     client = await _upsert_client(session, user)
     rows = [OrderLineIn(product_id=i.product_id, quantity=Decimal(i.quantity)) for i in body.items]
-    items, total = await build_order_items(session, rows, batch.id)
+    items, subtotal = await build_order_items(session, rows, batch.id)
+    promo, discount, total = await apply_promo(session, body.promo_code, subtotal)
 
     for old in await session.scalars(
         select(Order).where(
@@ -190,15 +211,22 @@ async def submit_cart(
         phone=phone,
         comment=None,
         total=total,
+        promo_code=promo.code if promo else None,
+        discount=discount,
         items=items,
     )
     session.add(order)
+    if promo:
+        promo.used_count = int(promo.used_count or 0) + 1
     await session.flush()
 
     payload = {
         "items": [i.model_dump() for i in body.items],
         "username": user.get("username"),
         "order_id": order.id,
+        "promo_code": order.promo_code,
+        "discount": str(discount),
+        "total": str(total),
     }
     session.add(
         OutboundMessage(
@@ -213,6 +241,27 @@ async def submit_cart(
     order = await session.scalar(select(Order).where(Order.id == order.id).options(selectinload(Order.items)))
     assert order
     return CheckoutOut(status="ok", order=_to_webapp_order(order, batch))
+
+
+@router.post("/promo/preview", response_model=PromoPreviewOut)
+async def preview_promo(
+    body: PromoPreviewIn,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> PromoPreviewOut:
+    promo, discount, total = await apply_promo(session, body.code, body.amount)
+    assert promo
+    if promo.discount_type == "percent":
+        label = f"−{promo.discount_value:g}%"
+    else:
+        label = f"−{promo.discount_value:g} ₽"
+    return PromoPreviewOut(
+        code=promo.code,
+        discount_type=promo.discount_type,
+        discount_value=promo.discount_value,
+        discount=discount,
+        total=total,
+        label=label,
+    )
 
 
 @router.post("/orders", response_model=list[WebappOrderOut])

@@ -22,6 +22,8 @@ type Order = {
   full_name: string
   phone: string
   total: number
+  promo_code?: string | null
+  discount?: number
   состав: string
   pickup_slot: string | null
   pickup_label: string | null
@@ -289,6 +291,11 @@ export function Orders() {
                     <span>Итого</span>
                     <strong>{fmtMoney(Number(o.total))} ₽</strong>
                   </div>
+                  {!!Number(o.discount) && (
+                    <p className="muted" style={{ margin: '0.35rem 0 0' }}>
+                      Промокод {o.promo_code}: −{fmtMoney(Number(o.discount))} ₽
+                    </p>
+                  )}
                   <div className="actions">
                     <button type="button" className="btn--ghost" onClick={() => void notifyTg(o)}>
                       В Telegram

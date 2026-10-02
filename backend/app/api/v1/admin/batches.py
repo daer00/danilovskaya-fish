@@ -20,6 +20,7 @@ from app.models.batch_product import BatchProduct
 from app.models.expense import Expense
 from app.models.order import Order
 from app.models.product import Product
+from app.services.batches import open_successor_batch
 from app.services.finance import batch_expenses, batch_purchase_cost, batch_revenue
 
 router = APIRouter()
@@ -69,11 +70,14 @@ async def update_batch(
     row = await session.get(Batch, batch_id)
     if not row:
         raise HTTPException(404, "not_found")
+    was_open = row.is_open
     if payload.is_open:
         for b in await session.scalars(select(Batch).where(Batch.is_open.is_(True), Batch.id != batch_id)):
             b.is_open = False
     for k, v in payload.model_dump().items():
         setattr(row, k, v)
+    if was_open and not row.is_open:
+        await open_successor_batch(session, row)
     await session.commit()
     await session.refresh(row)
     return row

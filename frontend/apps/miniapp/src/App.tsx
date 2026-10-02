@@ -102,7 +102,7 @@ function qtyHint(product: Product) {
   return product.allow_halves ? '0,5 — половина · 1 — одна рыба' : '1 — одна рыба'
 }
 
-function cartPayload(cart: CartItem[]) {
+function cartPayload(cart: CartItem[], promoCode?: string) {
   return {
     items: cart.map((i) => ({
       product_id: i.product.id,
@@ -110,6 +110,7 @@ function cartPayload(cart: CartItem[]) {
       price: i.product.price,
       quantity: String(i.quantity),
     })),
+    ...(promoCode?.trim() ? { promo_code: promoCode.trim() } : {}),
   }
 }
 
@@ -194,13 +195,23 @@ export function App() {
   const [profileNote, setProfileNote] = useState<string | null>(null)
   const [orderNotice, setOrderNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [promoInput, setPromoInput] = useState('')
+  const [promoApplied, setPromoApplied] = useState<{
+    code: string
+    discount: number
+    total: number
+    label: string
+  } | null>(null)
+  const [promoErr, setPromoErr] = useState<string | null>(null)
+  const [promoBusy, setPromoBusy] = useState(false)
   const sending = useRef(false)
   const inTelegram = Boolean(tg()?.initData || tg()?.initDataUnsafe?.user)
   const itemCount = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart])
-  const total = useMemo(
+  const subtotal = useMemo(
     () => cart.reduce((s, i) => s + Number(i.product.price) * i.quantity, 0),
     [cart],
   )
+  const total = promoApplied ? promoApplied.total : subtotal
   const shopOpen = Boolean(batch?.is_open)
 
   useEffect(() => {
@@ -252,6 +263,77 @@ export function App() {
     }
     return () => w.MainButton.offClick(onClick)
   }, [step, cart, total, itemCount, busy, inTelegram])
+
+  useEffect(() => {
+    if (!promoApplied) return
+    if (!cart.length || subtotal <= 0) {
+      setPromoApplied(null)
+      return
+    }
+    void fetch(`${API}/webapp/promo/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: promoApplied.code, amount: subtotal }),
+    })
+      .then(async (r) => {
+        if (!r.ok) {
+          setPromoApplied(null)
+          setPromoErr('Промокод больше не действует')
+          return
+        }
+        const d = await r.json()
+        setPromoApplied({
+          code: d.code,
+          discount: Number(d.discount),
+          total: Number(d.total),
+          label: d.label,
+        })
+      })
+      .catch(() => undefined)
+  }, [subtotal, cart.length])
+
+  async function applyPromo() {
+    setPromoErr(null)
+    if (!promoInput.trim()) {
+      setPromoApplied(null)
+      return
+    }
+    if (subtotal <= 0) return
+    setPromoBusy(true)
+    try {
+      const r = await fetch(`${API}/webapp/promo/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: promoInput.trim(), amount: subtotal }),
+      })
+      const text = await r.text()
+      if (!r.ok) {
+        let msg = 'Промокод не подошёл'
+        try {
+          const j = JSON.parse(text)
+          if (typeof j.detail === 'string') msg = j.detail
+        } catch {
+          /* ignore */
+        }
+        setPromoApplied(null)
+        setPromoErr(msg)
+        return
+      }
+      const d = JSON.parse(text)
+      setPromoApplied({
+        code: d.code,
+        discount: Number(d.discount),
+        total: Number(d.total),
+        label: d.label,
+      })
+      setPromoInput(d.code)
+      tg()?.HapticFeedback?.notificationOccurred?.('success')
+    } catch {
+      setPromoErr('Не удалось проверить промокод')
+    } finally {
+      setPromoBusy(false)
+    }
+  }
 
   async function loadOrders() {
     setOrdersLoading(true)
@@ -329,7 +411,7 @@ export function App() {
     setOrderNotice(null)
     const w = tg()
     const initData = w?.initData?.trim() || ''
-    const payload = cartPayload(cart)
+    const payload = cartPayload(cart, promoApplied?.code)
 
     try {
       if (initData) {
@@ -351,6 +433,8 @@ export function App() {
           )
         }
         setCart([])
+        setPromoApplied(null)
+        setPromoInput('')
         setStep('profile')
         w?.HapticFeedback?.notificationOccurred?.('success')
         sending.current = false
@@ -482,9 +566,48 @@ export function App() {
             </ul>
           )}
           {!!cart.length && (
+            <div className="promo-box">
+              <label className="promo-label" htmlFor="promo">
+                Промокод
+              </label>
+              <div className="promo-row">
+                <input
+                  id="promo"
+                  className="promo-input"
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                  placeholder="Введите код"
+                  autoCapitalize="characters"
+                />
+                <button
+                  type="button"
+                  className="btn promo-btn"
+                  disabled={promoBusy || !promoInput.trim()}
+                  onClick={() => void applyPromo()}
+                >
+                  {promoBusy ? '…' : 'Применить'}
+                </button>
+              </div>
+              {promoApplied && (
+                <p className="promo-ok">
+                  Код {promoApplied.code}: скидка {promoApplied.label} (−{fmtMoney(promoApplied.discount)})
+                </p>
+              )}
+              {promoErr && <p className="err">{promoErr}</p>}
+            </div>
+          )}
+          {!!cart.length && (
             <div className="total-box">
               <span>Итого</span>
-              <span>{fmtMoney(total)}</span>
+              <span>
+                {promoApplied && promoApplied.discount > 0 ? (
+                  <>
+                    <span className="total-old">{fmtMoney(subtotal)}</span> {fmtMoney(total)}
+                  </>
+                ) : (
+                  fmtMoney(total)
+                )}
+              </span>
             </div>
           )}
           {error && <p className="err">{error}</p>}

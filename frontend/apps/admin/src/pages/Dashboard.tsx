@@ -121,7 +121,10 @@ export function Dashboard() {
 
   return (
     <div className="page">
-      <PageHeader title="Главная" description="Партия, деньги и быстрый вход в заказы." />
+      <PageHeader
+        title="Главная"
+        description="Приём раз в 2 недели: после закрытия партии следующая открывается сама с тем же составом товаров."
+      />
 
       <div className="hero-grid">
         <div className={`week-card${open ? ' week-card--on' : ''}`}>

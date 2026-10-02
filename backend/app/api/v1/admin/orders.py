@@ -50,6 +50,8 @@ class OrderOut(BaseModel):
     pickup_slot: str | None = None
     pickup_label: str | None = None
     total: Decimal
+    promo_code: str | None = None
+    discount: Decimal = Decimal("0")
     cancel_reason: str | None
     состав: str
     items: list[OrderItemOut] = []
@@ -106,6 +108,8 @@ def _out(o: Order) -> OrderOut:
         pickup_slot=o.pickup_slot,
         pickup_label=PICKUP_LABELS.get(o.pickup_slot or "", None),
         total=o.total,
+        promo_code=o.promo_code,
+        discount=o.discount or Decimal("0"),
         cancel_reason=o.cancel_reason,
         состав=compose_items(o.items),
         items=[OrderItemOut.model_validate(i) for i in o.items],

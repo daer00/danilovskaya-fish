@@ -44,6 +44,7 @@ class OrderCreate(BaseModel):
     comment: str | None = None
     pickup_slot: PickupSlot
     items: list[CartItemIn] = Field(min_length=1)
+    promo_code: str | None = None
 
 
 class OrderItemOut(BaseModel):
@@ -68,6 +69,8 @@ class OrderOut(BaseModel):
     pickup_slot: str | None = None
     pickup_label: str | None = None
     total: Decimal
+    promo_code: str | None = None
+    discount: Decimal = Decimal("0")
     cancel_reason: str | None
     items: list[OrderItemOut]
     состав: str = ""
@@ -90,6 +93,8 @@ def _out(o: Order) -> OrderOut:
         pickup_slot=o.pickup_slot,
         pickup_label=PICKUP_LABELS.get(o.pickup_slot or "", None),
         total=o.total,
+        promo_code=o.promo_code,
+        discount=o.discount or Decimal("0"),
         cancel_reason=o.cancel_reason,
         items=items,
         состав=compose_items(o.items),
@@ -163,7 +168,8 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
     if not client:
         raise HTTPException(404, "client_not_found")
 
-    items, total = await build_order_items(session, payload.items, batch.id)
+    items, subtotal = await build_order_items(session, payload.items, batch.id)
+    from app.services.promos import apply_promo
 
     processing = await session.scalar(
         select(Order)
@@ -177,6 +183,10 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
         .limit(1)
     )
 
+    code = payload.promo_code or (processing.promo_code if processing else None)
+    already_counted = bool(processing and processing.promo_code)
+    promo, discount, total = await apply_promo(session, code, subtotal)
+
     client.full_name = payload.full_name
     client.phone = payload.phone
 
@@ -186,6 +196,8 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
         await session.flush()
         processing.items = items
         processing.total = total
+        processing.discount = discount
+        processing.promo_code = promo.code if promo else None
         processing.full_name = payload.full_name
         processing.phone = payload.phone
         processing.comment = payload.comment
@@ -203,9 +215,16 @@ async def create_order(payload: OrderCreate, session: Annotated[AsyncSession, De
             comment=payload.comment,
             pickup_slot=payload.pickup_slot,
             total=total,
+            promo_code=promo.code if promo else None,
+            discount=discount,
             items=items,
         )
         session.add(order)
+        if promo:
+            promo.used_count = int(promo.used_count or 0) + 1
+    if promo and not already_counted and processing:
+        # промо уже учли при создании из miniapp
+        pass
     await session.flush()
 
     ph = {

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.admin import auth, batches, bot_messages, cash, catalog, clients, expenses, finance, orders
+from app.api.v1.admin import auth, batches, bot_messages, cash, catalog, clients, expenses, finance, orders, promos
 
 admin_router = APIRouter()
 admin_router.include_router(auth.router, prefix="/auth", tags=["admin-auth"])
@@ -14,3 +14,4 @@ admin_router.include_router(expenses.router, prefix="/expenses", tags=["admin-ex
 admin_router.include_router(cash.router, prefix="/cash", tags=["admin-cash"])
 admin_router.include_router(finance.router, prefix="/finance", tags=["admin-finance"])
 admin_router.include_router(bot_messages.router, prefix="/bot-messages", tags=["admin-bot-messages"])
+admin_router.include_router(promos.router, prefix="/promos", tags=["admin-promos"])

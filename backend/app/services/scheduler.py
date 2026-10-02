@@ -14,6 +14,7 @@ from app.core.database import SessionLocal
 from app.enums import OrderStatus
 from app.models.batch import Batch
 from app.models.order import Order, OrderItem
+from app.services.batches import open_successor_batch
 from app.services.orders import batch_placeholders, fmt_money, fmt_qty, get_msg, notify_admins, render
 
 log = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ async def _deadline_jobs() -> None:
                 await notify_admins(session, text)
                 b.deadline_warned_at = now
 
-            # закрытие
+            # закрытие → сразу открываем следующую партию (+2 недели)
             if now >= dl:
                 b.is_open = False
                 if b.closed_notified_at is None:
@@ -71,6 +72,7 @@ async def _deadline_jobs() -> None:
                     )
                     await notify_admins(session, text)
                     b.closed_notified_at = now
+                await open_successor_batch(session, b)
         await session.commit()
 
 

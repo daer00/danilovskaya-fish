@@ -24,6 +24,8 @@ class Order(Base, TimestampMixin):
     comment: Mapped[str | None] = mapped_column(Text)
     pickup_slot: Mapped[str | None] = mapped_column(String(16))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    promo_code: Mapped[str | None] = mapped_column(String(64))
+    discount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     cancel_reason: Mapped[str | None] = mapped_column(Text)
 
     items: Mapped[list[OrderItem]] = relationship(back_populates="order", cascade="all, delete-orphan")

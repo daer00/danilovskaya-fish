@@ -10,6 +10,7 @@ import { Login } from './pages/Login'
 import { Messages } from './pages/Messages'
 import { Money } from './pages/Money'
 import { Orders } from './pages/Orders'
+import { Promos } from './pages/Promos'
 
 function Protected() {
   const { user, loading } = useAuth()
@@ -29,6 +30,7 @@ export function App() {
           <Route path="clients" element={<Clients />} />
           <Route path="messages" element={<Messages />} />
           <Route path="catalog" element={<Catalog />} />
+          <Route path="promos" element={<Promos />} />
           <Route path="money" element={<Money />} />
           <Route path="bot-texts" element={<BotTexts />} />
           <Route path="batches" element={<Navigate to="/" replace />} />
