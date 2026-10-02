@@ -1,0 +1,15 @@
+---
+description: Инварианты заказов, статусов и промокодов
+globs: backend/app/**/*order*,backend/app/**/*promo*,bots/**/*.py,frontend/apps/**/*Order*,frontend/apps/miniapp/**
+alwaysApply: false
+---
+
+# Заказы и промо
+
+Читай детали в `docs/CONTEXT.md` §4–5.
+
+- Промокод обязателен при оформлении.
+- `used_count` только вне `processing`/`cancelled`; смена статуса админом → `sync_promo_on_status_change`.
+- Mini App создаёт `processing`; бот подтверждает в `new` и **обязан** слать `promo_code`.
+- Правка позиций: пересчёт скидки из типа промо, не «застывшие» рубли для %.
+- Не ломай различие Баланс (месяц) vs Маржа (партия) — это другой rule/finance.

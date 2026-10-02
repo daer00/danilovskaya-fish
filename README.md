@@ -2,7 +2,8 @@
 
 Telegram-бот + Mini App + админка для недельного предзаказа рыбы (выдача в церкви).
 
-Документы: [docs/TZ.md](docs/TZ.md) · [Тексты_бота_v1_1.md](Тексты_бота_v1_1.md) · [docs/DEPLOY_BEGET.md](docs/DEPLOY_BEGET.md)
+**Контекст для людей и ИИ:** [docs/CONTEXT.md](docs/CONTEXT.md) · [AGENTS.md](AGENTS.md)  
+Документы: [docs/TZ.md](docs/TZ.md) (историческое ТЗ) · [Тексты_бота_v1_1.md](Тексты_бота_v1_1.md) · [docs/DEPLOY_BEGET.md](docs/DEPLOY_BEGET.md)
 
 ## Стек
 
@@ -56,9 +57,14 @@ cd infra && cp .env.server.example .env.server   # заполнить секре
 ## Структура
 
 ```
-backend/   API, модели, seed, scheduler
-bots/      Telegram (aiogram)
-frontend/  Admin SPA + Mini App
-infra/     Docker Compose, nginx, deploy.sh
-docs/      ТЗ и деплой
+AGENTS.md          вход для ИИ-агента
+docs/CONTEXT.md    актуальная бизнес-логика (правда)
+docs/TZ.md         историческое ТЗ
+.cursor/rules/     правила Cursor по зонам кода
+.cursor/skills/    переносимый skill стека
+backend/           API, модели, seed, scheduler
+bots/              Telegram (aiogram)
+frontend/          Admin SPA + Mini App
+infra/             Docker Compose, nginx, deploy.sh
+docs/              ТЗ, CONTEXT, деплой
 ```

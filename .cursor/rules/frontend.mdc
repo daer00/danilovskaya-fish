@@ -1,0 +1,13 @@
+---
+description: Админка и Mini App — не ломать доменные подписи и фильтры
+globs: frontend/apps/admin/**/*.tsx,frontend/apps/miniapp/**/*.{tsx,ts,css}
+alwaysApply: false
+---
+
+# Frontend admin / miniapp
+
+- Статусы: подписи как в backend `STATUS_LABELS` (`orderStatuses.ts`).
+- Счётчики заказов и промо на Dashboard — без `processing` (черновики).
+- Деньги/главная: слово **Баланс**, не «маржа».
+- Mini App: промо обязателен до checkout; тема day/night; корзина localStorage.
+- Не редизайнить админку «с нуля» без запроса; сохранять текущий visual language.

@@ -1,0 +1,15 @@
+---
+description: Финансы и партии — фильтры статусов и формулы
+globs: backend/app/**/*finance*,backend/app/**/*batch*,backend/app/services/scheduler.py,frontend/apps/admin/src/pages/{Dashboard,Money,Batches,BatchSetup}.tsx
+alwaysApply: false
+---
+
+# Финансы и партии
+
+См. `docs/CONTEXT.md` §6–7.
+
+- В выручку / KPI / order_count (деньги) **не** входят `cancelled` и `processing`.
+- Месяц — по `Batch.pickup_date`.
+- UI: «Баланс» = получения − траты; «Маржа» только у партии (выручка − закупка − expenses).
+- `line_total` агрегаты = до скидки.
+- Закрытие открытой партии → `open_successor_batch` (+14d), если другой открытой ещё нет.
