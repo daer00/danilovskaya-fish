@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import OrderStatus
+from app.models.batch import Batch
 from app.models.batch_product import BatchProduct
 from app.models.expense import Expense
 from app.models.order import Order, OrderItem
@@ -82,11 +83,16 @@ async def batch_expenses(session: AsyncSession, batch_id: int) -> Decimal:
 
 
 async def month_revenue(session: AsyncSession, start, end) -> Decimal:
+    """Выручка месяца по дате выдачи партии (не по created_at заказа)."""
+    start_d = start.date() if hasattr(start, "date") else start
+    end_d = end.date() if hasattr(end, "date") else end
     total = await session.scalar(
-        select(func.coalesce(func.sum(Order.total), 0)).where(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .join(Batch, Order.batch_id == Batch.id)
+        .where(
             Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
-            Order.created_at >= start,
-            Order.created_at < end,
+            Batch.pickup_date >= start_d,
+            Batch.pickup_date < end_d,
         )
     )
     return Decimal(total or 0).quantize(Decimal("0.01"))

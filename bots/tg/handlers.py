@@ -44,7 +44,7 @@ async def _batch_ph() -> dict[str, str]:
     return _fmt_deadline(b) if b else {"дедлайн": "—", "дата_выдачи": "—"}
 
 
-def _cart_sum(cart: list[dict]) -> tuple[str, str]:
+def _cart_sum(cart: list[dict], discount: Decimal | None = None) -> tuple[str, str]:
     lines, total = [], Decimal("0")
     for i in cart:
         q = Decimal(str(i["quantity"]))
@@ -53,6 +53,10 @@ def _cart_sum(cart: list[dict]) -> tuple[str, str]:
         total += line
         q_s = str(q.normalize()).replace(".", ",")
         lines.append(f"• {i['name']} — {q_s} × {p:.0f} ₽")
+    disc = Decimal(str(discount or 0))
+    if disc > 0:
+        total = max(total - disc, Decimal("0"))
+        lines.append(f"• Скидка по промокоду: −{disc:.0f} ₽")
     return "\n".join(lines), f"{total:.0f}"
 
 
@@ -101,6 +105,8 @@ async def start_checkout_from_items(
     state: FSMContext,
     items: list,
     answer,
+    promo_code: str | None = None,
+    discount: str | None = None,
 ) -> None:
     """Общий старт оформления из мини-аппа (sendData или API/outbox)."""
     await state.clear()
@@ -116,9 +122,15 @@ async def start_checkout_from_items(
         }
         for i in items
     ]
-    await state.update_data(cart=cart)
-    состав, сумма = _cart_sum(cart)
+    code = (promo_code or "").strip() or None
+    disc = Decimal(str(discount or 0)) if discount else Decimal("0")
+    await state.update_data(cart=cart, promo_code=code, discount=str(disc))
+    состав, сумма = _cart_sum(cart, disc if code else None)
     await answer(texts.get("cart_view", состав=состав, сумма=сумма), reply_markup=kb.main_kb())
+    if not code:
+        await state.set_state(OrderFSM.promo)
+        await answer("Введите промокод зоны доставки — без него заказ не оформить:")
+        return
     await state.set_state(OrderFSM.name)
     await answer(texts.get("ask_name"), reply_markup=kb.remove_kb())
 
@@ -131,10 +143,19 @@ async def cart_from_webapp(message: Message, state: FSMContext) -> None:
     try:
         raw = json.loads(message.web_app_data.data)
         items = raw.get("items") or []
+        promo_code = raw.get("promo_code")
+        discount = raw.get("discount")
     except (TypeError, ValueError, AttributeError):
         await message.answer(texts.get("error_generic"), reply_markup=kb.main_kb())
         return
-    await start_checkout_from_items(chat_id=message.chat.id, state=state, items=items, answer=message.answer)
+    await start_checkout_from_items(
+        chat_id=message.chat.id,
+        state=state,
+        items=items,
+        answer=message.answer,
+        promo_code=promo_code,
+        discount=str(discount) if discount is not None else None,
+    )
 
 
 @router.message(F.text == "Каталог")
@@ -269,11 +290,28 @@ async def checkout(cq: CallbackQuery, state: FSMContext) -> None:
         await cq.message.answer(texts.get("cart_empty"))
         await cq.answer()
         return
-    состав, сумма = _cart_sum(cart)
+    disc = Decimal(str(data.get("discount") or 0)) if data.get("promo_code") else Decimal("0")
+    состав, сумма = _cart_sum(cart, disc if data.get("promo_code") else None)
     await cq.message.answer(texts.get("cart_view", состав=состав, сумма=сумма))
+    if not (data.get("promo_code") or "").strip():
+        await state.set_state(OrderFSM.promo)
+        await cq.message.answer("Введите промокод зоны доставки — без него заказ не оформить:")
+        await cq.answer()
+        return
     await state.set_state(OrderFSM.name)
     await cq.message.answer(texts.get("ask_name"), reply_markup=kb.remove_kb())
     await cq.answer()
+
+
+@router.message(OrderFSM.promo)
+async def got_promo(message: Message, state: FSMContext) -> None:
+    code = (message.text or "").strip()
+    if not code:
+        await message.answer("Введите промокод зоны доставки:")
+        return
+    await state.update_data(promo_code=code, discount="0")
+    await state.set_state(OrderFSM.name)
+    await message.answer(texts.get("ask_name"), reply_markup=kb.remove_kb())
 
 
 @router.message(OrderFSM.name)
@@ -326,7 +364,8 @@ async def got_pickup(cq: CallbackQuery, state: FSMContext) -> None:
 
 async def _show_confirm(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
-    состав, сумма = _cart_sum(data.get("cart") or [])
+    disc = Decimal(str(data.get("discount") or 0)) if data.get("promo_code") else Decimal("0")
+    состав, сумма = _cart_sum(data.get("cart") or [], disc if data.get("promo_code") else None)
     ph = await _batch_ph()
     await state.set_state(OrderFSM.confirm)
     await message.answer(
@@ -365,6 +404,12 @@ async def abort_order(cq: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(OrderFSM.confirm, F.data == "order:confirm")
 async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
+    promo = (data.get("promo_code") or "").strip()
+    if not promo:
+        await state.set_state(OrderFSM.promo)
+        await cq.message.answer("Введите промокод зоны доставки — без него заказ не оформить:")
+        await cq.answer()
+        return
     payload = {
         "telegram_id": str(cq.from_user.id),
         "full_name": data["full_name"],
@@ -372,6 +417,7 @@ async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
         "comment": data.get("comment"),
         "pickup_slot": data.get("pickup_slot") or "first",
         "items": [{"product_id": i["product_id"], "quantity": i["quantity"]} for i in data.get("cart") or []],
+        "promo_code": promo,
     }
     try:
         order = await backend.create_order(payload)
@@ -381,6 +427,9 @@ async def confirm_order(cq: CallbackQuery, state: FSMContext) -> None:
             await cq.message.answer(texts.get("product_gone"))
         elif "deadline" in detail:
             await cq.message.answer(texts.get("closed_none", **await _batch_ph()))
+        elif "промокод" in detail.lower() or "promo" in detail.lower():
+            await state.set_state(OrderFSM.promo)
+            await cq.message.answer("Промокод не подошёл. Введите другой промокод зоны:")
         else:
             await cq.message.answer(texts.get("error_generic"))
         await cq.answer()

@@ -6,6 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 class OrderFSM(StatesGroup):
     qty = State()
     qty_custom = State()
+    promo = State()
     name = State()
     phone = State()
     pickup = State()

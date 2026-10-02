@@ -5,14 +5,16 @@ export const PIPELINE = [
   { id: 'completed', label: 'Выдан', match: ['completed'] },
 ] as const
 
+/** Подсказка переходов (админ может поставить любой статус вручную). */
 export const NEXT: Record<string, string[]> = {
-  processing: ['confirmed', 'cancelled'],
+  processing: ['new', 'confirmed', 'cancelled'],
   new: ['confirmed', 'cancelled'],
   confirmed: ['ready', 'cancelled'],
   ready: ['completed', 'cancelled'],
 }
 
 export const ACTION_LABELS: Record<string, string> = {
+  new: '→ Принять',
   confirmed: '→ Подтвердить',
   ready: '→ К выдаче',
   completed: '→ Выдан',

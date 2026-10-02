@@ -168,7 +168,7 @@ export function NewOrderForm({
 
   async function save() {
     if (!batchId) return setErr('Выберите партию')
-    if (!promoCode.trim()) return setErr('Укажите промокод — нужен для маршрута доставки')
+    if (!promoCode.trim()) return setErr('Укажите промокод — без него заказ не оформить')
     const items = lines.filter((l) => l.product_id && l.quantity > 0)
     if (!items.length) return setErr('Добавьте хотя бы одну позицию')
     setErr('')

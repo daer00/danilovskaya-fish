@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.admin.deps import CurrentAdmin
 from app.core.database import get_session
 from app.enums import OrderStatus
+from app.models.batch import Batch
 from app.models.cash_entry import CashEntry
 from app.models.expense import Expense
 from app.models.order import Order, OrderItem
@@ -96,10 +97,13 @@ async def month_overview(
 
     orders_count = int(
         await session.scalar(
-            select(func.count()).select_from(Order).where(
+            select(func.count())
+            .select_from(Order)
+            .join(Batch, Order.batch_id == Batch.id)
+            .where(
                 Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
-                Order.created_at >= start_dt,
-                Order.created_at < end_dt,
+                Batch.pickup_date >= start_d,
+                Batch.pickup_date < end_d,
             )
         )
         or 0
@@ -108,10 +112,11 @@ async def month_overview(
     product_rows = await session.execute(
         select(OrderItem.product_name, func.sum(OrderItem.quantity), func.sum(OrderItem.line_total))
         .join(Order)
+        .join(Batch, Order.batch_id == Batch.id)
         .where(
             Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
-            Order.created_at >= start_dt,
-            Order.created_at < end_dt,
+            Batch.pickup_date >= start_d,
+            Batch.pickup_date < end_d,
         )
         .group_by(OrderItem.product_name)
         .order_by(OrderItem.product_name)

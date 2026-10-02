@@ -29,7 +29,14 @@ async def _handle_webapp_cart(bot: Bot, dp: Dispatcher, item: dict) -> None:
     async def answer(text: str, **kwargs):
         await bot.send_message(user_id, text, **kwargs)
 
-    await start_checkout_from_items(chat_id=user_id, state=state, items=items, answer=answer)
+    await start_checkout_from_items(
+        chat_id=user_id,
+        state=state,
+        items=items,
+        answer=answer,
+        promo_code=raw.get("promo_code"),
+        discount=str(raw["discount"]) if raw.get("discount") is not None else None,
+    )
 
 
 async def _outbox_loop(bot: Bot, dp: Dispatcher) -> None:

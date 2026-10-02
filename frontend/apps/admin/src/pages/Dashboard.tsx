@@ -70,11 +70,16 @@ export function Dashboard() {
     () => (open ? orders.filter((o) => o.batch_id === open.id && o.status !== 'cancelled') : []),
     [orders, open],
   )
+  // Черновики корзины не в выручке и не в маршрутах
+  const realOrders = useMemo(
+    () => openOrders.filter((o) => o.status !== 'processing'),
+    [openOrders],
+  )
   const waiting = openOrders.filter((o) => o.status === 'processing' || o.status === 'new').length
   const promoStats = useMemo(() => {
     const map = new Map<string, number>()
     let without = 0
-    for (const o of openOrders) {
+    for (const o of realOrders) {
       const code = (o.promo_code || '').trim()
       if (!code) {
         without += 1
@@ -84,7 +89,7 @@ export function Dashboard() {
     }
     const rows = [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'))
     return { rows, without }
-  }, [openOrders])
+  }, [realOrders])
 
   const monthLabel = overview
     ? (() => {
@@ -167,9 +172,9 @@ export function Dashboard() {
                 })}
               </p>
               <p className="week-card__stat">
-                {openOrders.length} заказов{waiting ? ` · ${waiting} ждут` : ''}
+                {realOrders.length} заказов{waiting ? ` · ${waiting} ждут` : ''}
               </p>
-              {!!openOrders.length && (
+              {!!realOrders.length && (
                 <div className="promo-stats">
                   <div className="promo-stats__title">Промокоды (маршруты)</div>
                   {promoStats.rows.length ? (
@@ -218,7 +223,7 @@ export function Dashboard() {
         <div className="money-card">
           <span className="pill pill--sea">Деньги</span>
           <h2>За {monthLabel || 'месяц'}</h2>
-          <p>Получения, траты и маржа текущего месяца.</p>
+          <p>Получения и траты месяца (без себестоимости закупки — она в карточке партии).</p>
           <div className="money-card__row">
             <div className="money-card__kpi">
               <b>{fmtRub(received)}</b>
@@ -232,11 +237,11 @@ export function Dashboard() {
           <div className="money-card__row money-card__row--margin">
             <div className={`money-card__kpi${margin >= 0 ? ' money-card__kpi--ok' : ' money-card__kpi--bad'}`}>
               <b>{fmtRub(margin)}</b>
-              <span>Маржа</span>
+              <span>Баланс</span>
             </div>
             <div className={`money-card__kpi${(marginPct ?? 0) >= 0 ? ' money-card__kpi--ok' : ' money-card__kpi--bad'}`}>
               <b>{fmtPct(marginPct)}</b>
-              <span>Маржа %</span>
+              <span>Баланс %</span>
             </div>
           </div>
           <div className="actions">

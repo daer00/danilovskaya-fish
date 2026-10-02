@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import datetime, time
 from decimal import Decimal
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ from app.services.promos import normalize_code
 router = APIRouter()
 
 DiscountType = Literal["percent", "fixed"]
+MSK = ZoneInfo("Europe/Moscow")
 
 
 class PromoIn(BaseModel):
@@ -54,7 +56,7 @@ def _parse_day_start(raw: str | None) -> datetime | None:
         return None
     s = str(raw).strip()[:10]
     d = datetime.strptime(s, "%Y-%m-%d").date()
-    return datetime.combine(d, time.min, tzinfo=UTC)
+    return datetime.combine(d, time.min, tzinfo=MSK)
 
 
 def _parse_day_end(raw: str | None) -> datetime | None:
@@ -62,7 +64,7 @@ def _parse_day_end(raw: str | None) -> datetime | None:
         return None
     s = str(raw).strip()[:10]
     d = datetime.strptime(s, "%Y-%m-%d").date()
-    return datetime.combine(d, time(23, 59, 59), tzinfo=UTC)
+    return datetime.combine(d, time(23, 59, 59), tzinfo=MSK)
 
 
 def _validate(payload: PromoIn) -> dict:

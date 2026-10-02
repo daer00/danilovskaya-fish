@@ -27,10 +27,9 @@ class Settings(BaseSettings):
     redis_db: int = 0
 
     jwt_secret: str = "change_me"
-    # Админка: долгие независимые сессии на любых устройствах (0 = без лимита устройств).
+    # Админка: долгие сессии на любых устройствах (лимит устройств не используется).
     jwt_access_ttl_minutes: int = 60 * 24 * 30  # 30 дней
     jwt_refresh_ttl_days: int = 180
-    admin_max_sessions: int = 0  # 0 = без лимита; ограничение включим по запросу
 
     bot_api_token: str | None = None  # shared secret bot ↔ backend (outbox)
     tg_bot_token: str | None = None

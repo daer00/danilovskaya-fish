@@ -301,7 +301,10 @@ async def pickup_summary(
     orders = list(
         await session.scalars(
             select(Order)
-            .where(Order.batch_id == batch_id, Order.status != OrderStatus.CANCELLED)
+            .where(
+                Order.batch_id == batch_id,
+                Order.status.notin_([OrderStatus.CANCELLED, OrderStatus.PROCESSING]),
+            )
             .order_by(Order.number)
         )
     )
@@ -375,7 +378,10 @@ async def batch_detail(
             select(Order).options(selectinload(Order.items)).where(Order.batch_id == batch_id).order_by(Order.number)
         )
     )
-    active = [o for o in orders if o.status != OrderStatus.CANCELLED]
+    # Как в выручке: без отменённых и черновиков корзины
+    counted = [
+        o for o in orders if o.status not in (OrderStatus.CANCELLED, OrderStatus.PROCESSING)
+    ]
     revenue = await batch_revenue(session, batch_id)
     purchase = await batch_purchase_cost(session, batch_id)
     expenses = await batch_expenses(session, batch_id)
@@ -389,7 +395,7 @@ async def batch_detail(
         pickup_place=row.pickup_place,
         is_open=row.is_open,
         notes=row.notes,
-        order_count=len(active),
+        order_count=len(counted),
         revenue=revenue,
         purchase_cost=purchase,
         expenses=expenses,
@@ -409,6 +415,6 @@ async def batch_detail(
                     for i in o.items
                 ],
             )
-            for o in active
+            for o in counted
         ],
     )

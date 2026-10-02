@@ -20,9 +20,9 @@ type ChartSource = 'products' | 'statuses' | 'cash'
 
 const STATUS_RU: Record<string, string> = {
   processing: 'Оформляется',
-  new: 'Новый',
+  new: 'Принят, ждёт подтверждения',
   confirmed: 'Подтверждён',
-  ready: 'К выдаче',
+  ready: 'Готов к выдаче',
   completed: 'Выдан',
   cancelled: 'Отменён',
 }
@@ -309,7 +309,7 @@ export function SummaryModal({ onClose }: { onClose: () => void }) {
                   </ul>
                 )}
                 <h3 className="card__title" style={{ marginTop: '1rem' }}>
-                  Товары месяца
+                  Товары месяца (до скидки)
                 </h3>
                 {!overview.products.length ? (
                   <p className="muted">Пусто</p>

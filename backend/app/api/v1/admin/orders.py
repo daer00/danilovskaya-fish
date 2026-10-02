@@ -153,6 +153,7 @@ async def create_order(
     batch = await session.get(Batch, payload.batch_id)
     if not batch:
         raise HTTPException(404, "batch_not_found")
+    # Админ может оформить заказ после дедлайна (телефон / корректировка) — без проверки deadline.
 
     items: list[OrderItem] = []
     subtotal = Decimal("0")
@@ -193,12 +194,12 @@ async def create_order(
 
     status = payload.status if payload.status in ALL_STATUSES else OrderStatus.CONFIRMED
     if not (payload.promo_code or "").strip():
-        raise HTTPException(400, "Укажите промокод — нужен для маршрута доставки")
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
     promo, discount, total = await apply_promo(
         session, payload.promo_code, subtotal, for_update=True
     )
     if not promo:
-        raise HTTPException(400, "Укажите промокод — нужен для маршрута доставки")
+        raise HTTPException(400, "Укажите промокод — без него заказ не оформить")
 
 
     name = (client.full_name or "").strip() or "Без имени"
@@ -252,10 +253,23 @@ async def update_items(
             item.line_total = patch.line_total
         elif patch.unit_price is not None:
             item.line_total = (item.unit_price * item.quantity).quantize(Decimal("0.01"))
-    order.total = sum((i.line_total for i in order.items), Decimal("0")).quantize(Decimal("0.01"))
-    disc = Decimal(order.discount or 0).quantize(Decimal("0.01"))
-    if disc > 0:
-        order.total = max(order.total - min(disc, order.total), Decimal("0")).quantize(Decimal("0.01"))
+    subtotal = sum((i.line_total for i in order.items), Decimal("0")).quantize(Decimal("0.01"))
+    from app.services.promos import calc_discount, normalize_code
+    from app.models.promo_code import PromoCode
+    from sqlalchemy import func
+
+    code = normalize_code(order.promo_code or "")
+    if code:
+        promo = await session.scalar(select(PromoCode).where(func.upper(PromoCode.code) == code))
+        if promo:
+            discount = calc_discount(promo, subtotal)
+        else:
+            discount = min(Decimal(order.discount or 0), subtotal).quantize(Decimal("0.01"))
+        order.discount = discount
+        order.total = (subtotal - discount).quantize(Decimal("0.01"))
+    else:
+        order.discount = Decimal("0.00")
+        order.total = subtotal
     await session.commit()
     order = await load_order(session, order_id)
     assert order
@@ -274,14 +288,13 @@ async def set_status(
         raise HTTPException(404, "not_found")
     if payload.status not in ALL_STATUSES:
         raise HTTPException(400, f"Неизвестный статус: {payload.status}")
-    from app.services.promos import promo_was_consumed, release_promo
+    from app.services.promos import sync_promo_on_status_change
 
     prev = order.status
+    await sync_promo_on_status_change(session, order.promo_code, prev, payload.status)
     order.status = payload.status
     if payload.status == OrderStatus.CANCELLED:
         order.cancel_reason = payload.cancel_reason
-        if promo_was_consumed(prev):
-            await release_promo(session, order.promo_code)
     elif order.cancel_reason:
         order.cancel_reason = None
     client = await session.get(Client, order.client_id)

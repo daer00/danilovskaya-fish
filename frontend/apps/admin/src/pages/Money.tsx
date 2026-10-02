@@ -59,6 +59,7 @@ export function Money() {
     }),
     [overview?.received, overview?.spent],
   )
+  const balance = totals.income - totals.expense
 
   async function save(e?: FormEvent) {
     e?.preventDefault()
@@ -86,7 +87,7 @@ export function Money() {
     <div className="page">
       <PageHeader
         title="Деньги"
-        description="KPI за месяц как на главной: заказы + ручные получения / траты. Черновики корзины не считаются."
+        description="KPI за месяц как на главной: заказы + ручные получения / траты. Черновики корзины не считаются. Баланс ≠ маржа партии (там ещё закупка)."
       />
       {loadErr && <p className="form-error">{loadErr}</p>}
 
@@ -98,6 +99,12 @@ export function Money() {
         <div className={`kpi kpi--neg${form.entry_type === 'expense' ? ' kpi--focus' : ''}`}>
           <b className="neg">{fmtRub(totals.expense)}</b>
           <span>Траты</span>
+        </div>
+      </div>
+      <div className="kpi-grid kpi-grid--2" style={{ marginTop: '0.75rem' }}>
+        <div className={`kpi${balance >= 0 ? ' kpi--pos' : ' kpi--neg'}`}>
+          <b className={balance >= 0 ? 'pos' : 'neg'}>{fmtRub(balance)}</b>
+          <span>Баланс</span>
         </div>
       </div>
 
