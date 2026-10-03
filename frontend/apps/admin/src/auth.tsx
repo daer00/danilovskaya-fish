@@ -21,10 +21,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
       return
     }
+    let alive = true
     fetchMe()
-      .then(setUser)
-      .catch(() => clearToken())
-      .finally(() => setLoading(false))
+      .then((u) => {
+        if (alive) setUser(u)
+      })
+      .catch(() => {
+        clearToken()
+        if (alive) setUser(null)
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {

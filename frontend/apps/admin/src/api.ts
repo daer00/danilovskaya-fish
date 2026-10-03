@@ -1,6 +1,8 @@
 const BASE = (import.meta.env.VITE_API_BASE ?? '') + '/api/v1'
 const TOKEN_KEY = 'fish:admin:token'
 const REFRESH_KEY = 'fish:admin:refresh'
+/** На мобильном интернете без таймаута fetch может висеть минутами → вечная «Загрузка…» */
+const FETCH_MS = 25_000
 
 export type Role = 'admin'
 
@@ -45,6 +47,21 @@ export class ApiError extends Error {
   }
 }
 
+async function fetchApi(input: string, init?: RequestInit): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), FETCH_MS)
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError(0, 'Сервер не отвечает. Проверьте интернет и обновите страницу.')
+    }
+    throw new ApiError(0, 'Нет связи с сервером. Проверьте интернет и обновите страницу.')
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = `Ошибка ${res.status}`
@@ -69,7 +86,7 @@ async function tryRefresh(): Promise<boolean> {
     refreshing = (async () => {
       try {
         const data = await handle<{ access_token: string; refresh_token: string }>(
-          await fetch(`${BASE}/admin/auth/refresh`, {
+          await fetchApi(`${BASE}/admin/auth/refresh`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refresh_token: rt }),
@@ -89,11 +106,11 @@ async function tryRefresh(): Promise<boolean> {
 }
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`${BASE}${path}`, init)
+  const res = await fetchApi(`${BASE}${path}`, init)
   if (res.status !== 401 || path.includes('/admin/auth/')) return res
   if (!(await tryRefresh())) return res
   const h = { ...(init?.headers as Record<string, string> | undefined), ...headers() }
-  return fetch(`${BASE}${path}`, { ...init, headers: h })
+  return fetchApi(`${BASE}${path}`, { ...init, headers: h })
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
@@ -114,7 +131,7 @@ export async function apiUpload(path: string, file: File): Promise<{ url: string
   const fd = new FormData()
   fd.append('file', file)
   const once = async (token: string | null) =>
-    fetch(`${BASE}${path}`, {
+    fetchApi(`${BASE}${path}`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: fd,
@@ -126,7 +143,7 @@ export async function apiUpload(path: string, file: File): Promise<{ url: string
 
 export async function login(email: string, password: string): Promise<void> {
   const data = await handle<{ access_token: string; refresh_token: string }>(
-    await fetch(`${BASE}/admin/auth/login`, {
+    await fetchApi(`${BASE}/admin/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
